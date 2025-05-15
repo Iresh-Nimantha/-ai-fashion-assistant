@@ -1,26 +1,163 @@
 @import "tailwindcss";
 
+* {
+  scroll-behavior: smooth;
+}
+
+/* ZEUS Fashion Shop Color Palette & Creative Styles */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --zeus-black: #000000;
+  --zeus-charcoal: #232323;
+  --zeus-white: #ffffff;
+  --zeus-silver: #bfc0c0;
+  --zeus-navy: #1a2238;
+  --zeus-gold: #ffd700;
+  --zeus-font: "Oswald", "Montserrat", Arial, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Utility classes for backgrounds */
+.bg-zeus-black {
+  background-color: var(--zeus-black) !important;
+}
+.bg-zeus-charcoal {
+  background-color: var(--zeus-charcoal) !important;
+}
+.bg-zeus-navy {
+  background-color: var(--zeus-navy) !important;
+}
+.bg-zeus-gold {
+  background-color: var(--zeus-gold) !important;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Utility classes for text */
+.text-zeus-white {
+  color: var(--zeus-white) !important;
+}
+.text-zeus-silver {
+  color: var(--zeus-silver) !important;
+}
+.text-zeus-gold {
+  color: var(--zeus-gold) !important;
+}
+.text-zeus-navy {
+  color: var(--zeus-navy) !important;
+}
+.text-zeus-black {
+  color: var(--zeus-black) !important;
+}
+
+/* Utility classes for borders */
+.border-zeus-silver {
+  border-color: var(--zeus-silver) !important;
+}
+.border-zeus-gold {
+  border-color: var(--zeus-gold) !important;
+}
+
+/* ZEUS font utility */
+.font-zeus {
+  font-family: var(--zeus-font) !important;
+}
+
+/* Example: Card style for ZEUS theme */
+.zeus-card {
+  background: var(--zeus-charcoal);
+  color: var(--zeus-white);
+  border: 1px solid var(--zeus-silver);
+  border-radius: 1rem;
+  font-family: var(--zeus-font);
+  box-shadow: 0 4px 32px 0 rgba(0, 0, 0, 0.25);
+  padding: 2rem;
+}
+
+/* Example: Button style for ZEUS theme */
+.zeus-btn {
+  background: var(--zeus-navy);
+  color: var(--zeus-white);
+  font-family: var(--zeus-font);
+  font-weight: bold;
+  border-radius: 0.5rem;
+  padding: 0.75rem 2rem;
+  border: none;
+  transition: background 0.2s, color 0.2s;
+}
+.zeus-btn:hover {
+  background: var(--zeus-gold);
+  color: var(--zeus-black);
+}
+
+/* Example: Heading style for ZEUS theme */
+.zeus-heading {
+  color: var(--zeus-gold);
+  font-family: var(--zeus-font);
+  font-weight: bold;
+  letter-spacing: 0.05em;
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(-15px) translateX(15px);
+  }
+}
+@keyframes float-slow-reverse {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(15px) translateX(-15px);
+  }
+}
+@keyframes ping-slow {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  75%,
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(-15px) translateX(15px);
+  }
+}
+@keyframes float-slow-reverse {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(15px) translateX(-15px);
+  }
+}
+@keyframes ping-slow {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  75%,
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@keyframes pulse-beam {
+  0% {
+    opacity: 0.1;
+  }
+  100% {
+    opacity: 0.3;
+  }
 }

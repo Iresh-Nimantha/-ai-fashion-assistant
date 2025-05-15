@@ -34,3 +34,23 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## 🎨 ZEUS Color Palette (Dark Mode / Heroic Theme) -->
+
+Color Role Hex Code Description
+Primary Black #000000 Dominant background color
+Zeus White #FFFFFF Logo/typography contrast
+Steel Gray #5B5B5B Secondary text, muted accents
+Charcoal Gray #1A1A1A Section backgrounds, nav hover
+Shadow Silver #B3B3B3 Subheadings or border lines
+
+✅ Usage Recommendations
+Background: #000000 (pure black)
+
+Text: Use #FFFFFF for headings and #B3B3B3 or #5B5B5B for secondary text
+
+Buttons: Black with white text or vice versa
+
+Hover effects: Subtle light gray shadows or #1A1A1A dark overlays
+
+Borders/dividers: #2C2C2C or #5B5B5B

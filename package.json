@@ -9,16 +9,25 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@azure-rest/ai-inference": "^1.0.0-beta.6",
+    "@azure/core-auth": "^1.9.0",
+    "@google/genai": "^0.13.0",
+    "@google/generative-ai": "^0.24.1",
+    "framer-motion": "^12.10.4",
+    "lucide-react": "^0.508.0",
+    "next": "15.3.2",
+    "openai": "^4.98.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.3.2"
+    "react-dropzone": "^14.3.8",
+    "react-markdown": "^10.1.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
