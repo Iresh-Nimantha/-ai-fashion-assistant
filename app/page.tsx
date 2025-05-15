@@ -35,14 +35,14 @@ const Page = () => {
 
   return (
     <div>
-      {/* <Navbar /> */}
-      {/* <HeroBanner /> */}
-      {/* <h1>AI Fashion Assistant Demo</h1> */}
-      {/* <AIFashionAssistant onResult={setAnalysisResult} /> */}
-      {/* <AboutUs /> */}
-      {/* <CollectionsPreview /> */}
-      {/* <SocialMediaSection /> */}
-      {/* <ChatBubble
+      <Navbar />
+      <HeroBanner />
+      <h1>AI Fashion Assistant Demo</h1>
+      <AIFashionAssistant onResult={setAnalysisResult} />
+      <AboutUs />
+      <CollectionsPreview />
+      <SocialMediaSection />
+    <ChatBubble
         model={model}
         title="Zeus Fashion Assistant"
         welcomeMessage="Welcome to Zeus Fashion! How can I help you with your shopping experience today?"
@@ -57,10 +57,10 @@ const Page = () => {
           "What are your store locations?",
         ]}
         analysis={analysisResult}
-      /> */}
-      {/* <ContactSection /> */}
-      {/* <Footer /> */}
-      <AIFashionAssistant />
+      /> 
+      <ContactSection />
+      <Footer />
+      {/* <AIFashionAssistant /> */}
     </div>
   );
 };

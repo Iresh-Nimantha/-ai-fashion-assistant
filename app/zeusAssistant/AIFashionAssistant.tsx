@@ -1,8 +1,8 @@
-"use client";
+ "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, ChangeEvent, DragEvent } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import Imagegen from "../components/AIFashionAssistant/Imagegen";
+import Imagegen from "../components/Imagegen";
 import {
   Upload,
   X,
@@ -32,15 +32,37 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
-import ChatBubble from "../components/AIFashionAssistant/ChatBubble";
-// Configuration moved to a separate constant
-const CONFIG = {
-  API_KEY: "AIzaSyCwfP90K1RoQow4YW5U2j8V-0ECF3d-5as",
-  MODEL: "gemini-1.5-flash",
+import ChatBubble from "../components/ChatBubble";
+
+// Type definitions
+interface HistoryItem {
+  id: number;
+  preview: string;
+  response: string;
+  timestamp: string;
+  mode: keyof typeof ANALYSIS_MODES;
+}
+
+interface AnalysisMode {
+  name: string;
+  description: string;
+  icon: React.ReactElement;
+  prompt: string;
+  maxTokens: number;
+}
+
+type AnalysisModes = {
+  [K in 'standard' | 'professional' | 'quick']: AnalysisMode;
 };
 
+// Configuration moved to a separate constant
+const CONFIG = {
+  API_KEY: process.env.GEMINIFLASH_API_KEY || '',
+  MODEL: "gemini-1.5-flash",
+} as const;
+
 // Advanced prompts for different analysis modes
-const ANALYSIS_MODES = {
+const ANALYSIS_MODES: AnalysisModes = {
   standard: {
     name: "Standard Analysis",
     description: "Complete outfit analysis with basic recommendations",
@@ -142,37 +164,52 @@ List 1-2 ideal occasions/settings where this outfit would shine`,
 };
 
 const AIFashionAssistant = () => {
-  const [image, setImage] = useState(null);
+  const [image, setImage] = useState<File | null>(null);
   const [responseText, setResponseText] = useState("");
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
-  const [history, setHistory] = useState([]);
-  const [styleTags, setStyleTags] = useState([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [styleTags, setStyleTags] = useState<string[]>([]);
   const [showTips, setShowTips] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [selectedMode, setSelectedMode] = useState("standard");
+  const [selectedMode, setSelectedMode] = useState<keyof typeof ANALYSIS_MODES>("standard");
   const [showOptions, setShowOptions] = useState(false);
   const [temperature, setTemperature] = useState(0.7);
   const [activeTab, setActiveTab] = useState("upload");
   const [darkMode, setDarkMode] = useState(true);
-  const [viewMode, setViewMode] = useState("split"); // "split", "input", "output"
-  const fileInputRef = useRef(null);
-  const responseRef = useRef(null);
+  const [viewMode, setViewMode] = useState<"split" | "input" | "output">("split");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const responseRef = useRef<HTMLDivElement>(null);
   const [captureDevice, setCaptureDevice] = useState(false);
 
   // Initialize the model
+  if (!CONFIG.API_KEY) {
+    throw new Error('API_KEY is not defined in CONFIG');
+  }
   const genAI = new GoogleGenerativeAI(CONFIG.API_KEY);
   const model = genAI.getGenerativeModel({ model: CONFIG.MODEL });
 
   // Convert file to base64 for Gemini API
   const fileToGenerativePart = async (file: File) => {
-    const base64 = await new Promise((resolve, reject) => {
+    const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result.split(",")[1]);
+      reader.onloadend = () => {
+        const result = reader.result;
+        if (typeof result === 'string') {
+          const base64Data = result.split(",")[1];
+          if (base64Data) {
+            resolve(base64Data);
+          } else {
+            reject(new Error('Failed to extract base64 data'));
+          }
+        } else {
+          reject(new Error('Failed to read file as data URL'));
+        }
+      };
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
@@ -186,17 +223,20 @@ const AIFashionAssistant = () => {
   };
 
   // Handle file selection
-  const handleFileSelect = (e) => {
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement> | DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragActive(false);
 
-    const file =
-      e.target.files?.[0] || (e.dataTransfer?.files && e.dataTransfer.files[0]);
+    let file: File | undefined;
+    if ('files' in e.target && e.target.files?.[0]) {
+      file = e.target.files[0];
+    } else if ('dataTransfer' in e && e.dataTransfer?.files?.[0]) {
+      file = e.dataTransfer.files[0];
+    }
 
     if (file && file.type.startsWith("image/")) {
       setImage(file);
       setPreview(URL.createObjectURL(file));
-      // Switch to upload tab if not already there
       setActiveTab("upload");
     }
   };
@@ -204,17 +244,19 @@ const AIFashionAssistant = () => {
   // Activate camera capture
   const activateCamera = () => {
     setCaptureDevice(true);
-    // If we're on mobile, use the camera directly
-    if (fileInputRef.current && navigator.mediaDevices) {
-      fileInputRef.current.setAttribute("capture", "environment");
-      fileInputRef.current.click();
+    const input = fileInputRef.current;
+    if (!input) return;
+
+    if (navigator.mediaDevices) {
+      input.setAttribute("capture", "environment");
+      input.click();
     } else {
-      fileInputRef.current.click();
+      input.click();
     }
   };
 
   // Drag and drop handlers
-  const handleDrag = (e) => {
+  const handleDrag = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -225,7 +267,7 @@ const AIFashionAssistant = () => {
     }
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
@@ -376,26 +418,29 @@ const AIFashionAssistant = () => {
   };
 
   // Function to load a history item
-  const loadHistoryItem = (item) => {
+  const loadHistoryItem = (item: HistoryItem) => {
     setPreview(item.preview);
     setResponseText(item.response);
-    setSelectedMode(item.mode || "standard");
+    setSelectedMode(item.mode);
     setShowResults(true);
     setHistoryExpanded(false);
-    // Create a temporary object URL for the history item
+    
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
       canvas.width = img.width;
       canvas.height = img.height;
       const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      
       ctx.drawImage(img, 0, 0);
       canvas.toBlob((blob) => {
+        if (!blob) return;
         const file = new File([blob], "history-image.jpg", {
           type: "image/jpeg",
         });
         setImage(file);
-      });
+      }, "image/jpeg");
     };
     img.src = item.preview;
   };
@@ -881,9 +926,9 @@ const AIFashionAssistant = () => {
                     {Object.entries(ANALYSIS_MODES).map(([key, mode]) => (
                       <button
                         key={key}
-                        onClick={() => setSelectedMode(key)}
+                        onClick={() => setSelectedMode(key as keyof typeof ANALYSIS_MODES)}
                         className={`p-2 rounded text-xs text-center transition-all ${
-                          selectedMode === key
+                          selectedMode === key as keyof typeof ANALYSIS_MODES
                             ? "bg-zeus-gold text-white shadow-md"
                             : `${
                                 darkMode

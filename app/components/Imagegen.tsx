@@ -1,21 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { ImageIcon, Download, Loader2, AlertCircle } from "lucide-react";
-
-// Don't import or initialize the API globally
-// We'll handle this inside the component
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 interface ImagegenProps {
   responseText?: string;
   darkMode?: boolean;
-  apiKey?: string; // New prop to pass API key from parent
 }
 
 type AspectRatio = "1:1" | "4:3" | "16:9" | "3:4" | "9:16";
 
-const aspectRatioDimensions: Record<
-  AspectRatio,
-  { width: number; height: number }
-> = {
+const aspectRatioDimensions: Record<AspectRatio, { width: number; height: number }> = {
   "1:1": { width: 1024, height: 1024 },
   "4:3": { width: 1024, height: 768 },
   "16:9": { width: 1024, height: 576 },
@@ -26,21 +20,12 @@ const aspectRatioDimensions: Record<
 const Imagegen: React.FC<ImagegenProps> = ({
   responseText = "",
   darkMode = true,
-  apiKey, // Get API key from props
 }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
-  const [apiKeyInput, setApiKeyInput] = useState<string>(apiKey || "");
-  const [showApiKeyInput, setShowApiKeyInput] = useState<boolean>(!apiKey);
-
-  // Environment variable handling - use dynamic access for better error handling
-  const envApiKey =
-    typeof window !== "undefined"
-      ? process.env.NEXT_PUBLIC_GEMINI_IMAGE_API_KEY
-      : null;
 
   // Theme classes
   const themeClasses = darkMode
@@ -52,9 +37,7 @@ const Imagegen: React.FC<ImagegenProps> = ({
     if (responseText) {
       const lines = responseText.split("\n");
       const styleLines = lines.filter((line) =>
-        /(style|dress|outfit|color|wearing|fabric|pattern|design|accessories|details)/i.test(
-          line
-        )
+        /(style|dress|outfit|color|wearing|fabric|pattern|design|accessories|details)/i.test(line)
       );
 
       let extractedPrompt = "";
@@ -66,8 +49,7 @@ const Imagegen: React.FC<ImagegenProps> = ({
 
         extractedPrompt = `A high quality fashion photography of ${extractedPrompt}. Professional fashion photography, studio lighting, high resolution, photorealistic, detailed texture, fashion editorial style, clean background, perfect composition.`;
       } else {
-        extractedPrompt =
-          "A high quality fashion photography of stylish clothing and accessories. Professional fashion photography, studio lighting, high resolution, photorealistic, fashion editorial style.";
+        extractedPrompt = "A high quality fashion photography of stylish clothing and accessories. Professional fashion photography, studio lighting, high resolution, photorealistic, fashion editorial style.";
       }
 
       setPrompt(extractedPrompt);
@@ -77,60 +59,74 @@ const Imagegen: React.FC<ImagegenProps> = ({
   const generateImage = async () => {
     if (!prompt) return;
 
-    // Use API key from state, props, or environment variable
-    const currentApiKey = apiKeyInput || apiKey || envApiKey;
-
-    if (!currentApiKey) {
-      setError("Please provide a Google Gemini API key to generate images");
-      setShowApiKeyInput(true);
-      return;
-    }
-
     setIsGenerating(true);
     setError(null);
 
     try {
-      // Import GoogleGenAI dynamically to prevent issues at build time
-      const { GoogleGenAI, Modality } = await import("@google/genai");
-
-      // Initialize the API with the key
-      const ai = new GoogleGenAI({ apiKey: currentApiKey });
-
-      const dimensions = aspectRatioDimensions[aspectRatio];
-      const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash-preview-image-generation",
-        contents: prompt,
-        config: {
-          responseModalities: [Modality.TEXT, Modality.IMAGE],
-          generationConfig: {
-            width: dimensions.width,
-            height: dimensions.height,
-          },
-        },
-      });
-
-      const candidates = response.candidates;
-      if (!candidates || !candidates[0]?.content?.parts) {
-        throw new Error("Invalid response from API");
+      const apiKey = process.env.NEXT_PUBLIC_GEMINIFLASH_API_KEY;
+      
+      if (!apiKey) {
+        throw new Error("API key not found. Please check your environment variables.");
       }
 
-      for (const part of candidates[0].content.parts) {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-2.0-flash-preview-image-generation",
+        generationConfig: {
+          temperature: 0.9,
+          topK: 32,
+          topP: 1,
+          maxOutputTokens: 2048,
+        }
+      });
+
+      const dimensions = aspectRatioDimensions[aspectRatio];
+      const result = await model.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `Generate a fashion image with these specifications:
+                ${prompt}
+                Aspect ratio: ${aspectRatio} (${dimensions.width}x${dimensions.height})
+                Style: Professional fashion photography
+                Quality: High resolution, photorealistic
+                Please generate an image that matches this description.`
+              }
+            ],
+          },
+        ]
+      });
+
+      const response = await result.response;
+      
+      if (!response.candidates || response.candidates.length === 0) {
+        throw new Error("No response received from the API");
+      }
+
+      const parts = response.candidates[0].content.parts;
+      let imageData = null;
+
+      for (const part of parts) {
         if (part.inlineData) {
-          const imageData = part.inlineData.data;
-          const imageUrl = `data:image/png;base64,${imageData}`;
-          setGeneratedImage(imageUrl);
+          imageData = part.inlineData.data;
           break;
         }
+      }
+
+      if (imageData) {
+        const imageUrl = `data:image/png;base64,${imageData}`;
+        setGeneratedImage(imageUrl);
+      } else {
+        throw new Error("No image data found in the response. Please try again.");
       }
     } catch (err: any) {
       console.error("Error generating image:", err);
       if (err.message.includes("API key")) {
-        setError("Invalid API key. Please check your Google Gemini API key.");
-        setShowApiKeyInput(true);
+        setError("Invalid API key. Please check your environment variables.");
       } else if (err.message.includes("Failed to fetch")) {
-        setError(
-          "Network error: Please check your internet connection and try again."
-        );
+        setError("Network error: Please check your internet connection and try again.");
       } else {
         setError(err.message || "Failed to generate image. Please try again.");
       }
@@ -149,21 +145,8 @@ const Imagegen: React.FC<ImagegenProps> = ({
     document.body.removeChild(link);
   };
 
-  const saveApiKey = () => {
-    if (apiKeyInput.trim()) {
-      // Store in session storage for temporary persistence
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("gemini_api_key", apiKeyInput.trim());
-      }
-      setShowApiKeyInput(false);
-      setError(null);
-    }
-  };
-
   return (
-    <div
-      className={`rounded-xl shadow-lg overflow-hidden ${themeClasses} mb-6`}
-    >
+    <div className={`rounded-xl shadow-lg overflow-hidden ${themeClasses} mb-6`}>
       <div className="p-4 border-b border-gray-700 flex justify-between items-center">
         <div className="flex items-center space-x-2">
           <div className="p-1.5 bg-zeus-gold rounded-full">
@@ -175,28 +158,16 @@ const Imagegen: React.FC<ImagegenProps> = ({
 
       <div className="p-6">
         <div className="mb-4">
-          <label
-            className={`text-sm font-medium ${
-              darkMode ? "text-zeus-silver" : "text-gray-600"
-            }`}
-          >
+          <label className={`text-sm font-medium ${darkMode ? "text-zeus-silver" : "text-gray-600"}`}>
             Generation Prompt
           </label>
-          <div
-            className={`mt-2 p-3 rounded-lg ${
-              darkMode ? "bg-zeus-navy" : "bg-gray-50"
-            } text-sm`}
-          >
+          <div className={`mt-2 p-3 rounded-lg ${darkMode ? "bg-zeus-navy" : "bg-gray-50"} text-sm`}>
             <p className="line-clamp-3">{prompt}</p>
           </div>
         </div>
 
         <div className="mb-4">
-          <label
-            className={`text-sm font-medium ${
-              darkMode ? "text-zeus-silver" : "text-gray-600"
-            }`}
-          >
+          <label className={`text-sm font-medium ${darkMode ? "text-zeus-silver" : "text-gray-600"}`}>
             Aspect Ratio
           </label>
           <select
@@ -204,9 +175,7 @@ const Imagegen: React.FC<ImagegenProps> = ({
             onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
             className={`mt-2 w-full p-2 rounded-lg ${
               darkMode ? "bg-zeus-navy text-white" : "bg-gray-50 text-gray-900"
-            } border ${
-              darkMode ? "border-gray-700" : "border-gray-200"
-            } focus:outline-none focus:ring-2 focus:ring-zeus-gold`}
+            } border ${darkMode ? "border-gray-700" : "border-gray-200"} focus:outline-none focus:ring-2 focus:ring-zeus-gold`}
           >
             <option value="1:1">Square (1:1)</option>
             <option value="4:3">Landscape (4:3)</option>
@@ -269,12 +238,8 @@ const Imagegen: React.FC<ImagegenProps> = ({
         {isGenerating && (
           <div className="flex flex-col items-center justify-center h-64 bg-black/10 rounded-lg">
             <div className="w-10 h-10 border-4 border-zeus-gold border-t-transparent rounded-full mb-4 animate-spin"></div>
-            <p className="text-zeus-gold font-medium">
-              Generating fashion image...
-            </p>
-            <p className="text-xs text-zeus-silver mt-1">
-              This may take up to 30 seconds
-            </p>
+            <p className="text-zeus-gold font-medium">Generating fashion image...</p>
+            <p className="text-xs text-zeus-silver mt-1">This may take up to 30 seconds</p>
           </div>
         )}
       </div>
@@ -287,4 +252,4 @@ const Imagegen: React.FC<ImagegenProps> = ({
   );
 };
 
-export default Imagegen;
+export default Imagegen; 

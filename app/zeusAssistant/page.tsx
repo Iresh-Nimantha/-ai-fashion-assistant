@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, ChangeEvent, DragEvent } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import Imagegen from "../components/Imagegen";
 import {
@@ -33,14 +33,30 @@ import {
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
 import ChatBubble from "../components/ChatBubble";
-// Configuration moved to a separate constant
-const CONFIG = {
-  API_KEY: "AIzaSyCwfP90K1RoQow4YW5U2j8V-0ECF3d-5as",
-  MODEL: "gemini-1.5-flash",
+
+// Type definitions
+interface HistoryItem {
+  id: number;
+  preview: string;
+  response: string;
+  timestamp: string;
+  mode: keyof typeof ANALYSIS_MODES;
+}
+
+interface AnalysisMode {
+  name: string;
+  description: string;
+  icon: React.ReactElement;
+  prompt: string;
+  maxTokens: number;
+}
+
+type AnalysisModes = {
+  [K in 'standard' | 'professional' | 'quick']: AnalysisMode;
 };
 
 // Advanced prompts for different analysis modes
-const ANALYSIS_MODES = {
+const ANALYSIS_MODES: AnalysisModes = {
   standard: {
     name: "Standard Analysis",
     description: "Complete outfit analysis with basic recommendations",
@@ -141,62 +157,142 @@ List 1-2 ideal occasions/settings where this outfit would shine`,
   },
 };
 
+// Configuration moved to a separate constant
+const CONFIG = {
+  API_KEY: process.env.NEXT_PUBLIC_GEMINIFLASH_API_KEY || '',
+  MODEL: "gemini-1.5-flash",
+} as const;
+
+// Add error handling for missing API key
+if (!CONFIG.API_KEY) {
+  console.error('API key is not configured. Please add NEXT_PUBLIC_GEMINIFLASH_API_KEY to your .env.local file');
+}
+
+// Convert file to base64 for Gemini API
+const fileToGenerativePart = async (file: File) => {
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result === 'string') {
+        const base64Data = result.split(",")[1];
+        if (base64Data) {
+          resolve(base64Data);
+        } else {
+          reject(new Error('Failed to extract base64 data'));
+        }
+      } else {
+        reject(new Error('Failed to read file as data URL'));
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  return {
+    inlineData: {
+      data: base64,
+      mimeType: file.type,
+    },
+  };
+};
+
+// Initialize the model with error handling
+const initializeModel = () => {
+  try {
+    if (!CONFIG.API_KEY) {
+      throw new Error('API key is not configured');
+    }
+    const genAI = new GoogleGenerativeAI(CONFIG.API_KEY);
+    return genAI.getGenerativeModel({ model: CONFIG.MODEL });
+  } catch (error) {
+    console.error('Error initializing Gemini model:', error);
+    return null;
+  }
+};
+
 const AIFashionAssistant = () => {
-  const [image, setImage] = useState(null);
+  const [image, setImage] = useState<File | null>(null);
   const [responseText, setResponseText] = useState("");
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
-  const [history, setHistory] = useState([]);
-  const [styleTags, setStyleTags] = useState([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [styleTags, setStyleTags] = useState<string[]>([]);
   const [showTips, setShowTips] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [selectedMode, setSelectedMode] = useState("standard");
+  const [selectedMode, setSelectedMode] = useState<keyof typeof ANALYSIS_MODES>("standard");
   const [showOptions, setShowOptions] = useState(false);
   const [temperature, setTemperature] = useState(0.7);
   const [activeTab, setActiveTab] = useState("upload");
   const [darkMode, setDarkMode] = useState(true);
-  const [viewMode, setViewMode] = useState("split"); // "split", "input", "output"
-  const fileInputRef = useRef(null);
-  const responseRef = useRef(null);
+  const [viewMode, setViewMode] = useState<"split" | "input" | "output">("split");
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const responseRef = useRef<HTMLDivElement>(null);
   const [captureDevice, setCaptureDevice] = useState(false);
 
-  // Initialize the model
-  const genAI = new GoogleGenerativeAI(CONFIG.API_KEY);
-  const model = genAI.getGenerativeModel({ model: CONFIG.MODEL });
-
-  // Convert file to base64 for Gemini API
-  const fileToGenerativePart = async (file) => {
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result.split(",")[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
-    return {
-      inlineData: {
-        data: base64,
-        mimeType: file.type,
+  // Animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+        delayChildren: 0.2,
       },
-    };
+    },
   };
 
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: {
+      y: 0,
+      opacity: 1,
+      transition: { type: "spring", stiffness: 300, damping: 24 },
+    },
+  };
+
+  // Theme classes
+  const themeClasses = darkMode
+    ? "bg-zeus-black text-zeus-white"
+    : "bg-gray-100 text-gray-900";
+
+  const cardThemeClasses = darkMode
+    ? "bg-zeus-charcoal border-zeus-navy"
+    : "bg-white border-gray-200";
+
+  // Check if it's a mobile device
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+  // Initialize the model
+  const model = useMemo(() => initializeModel(), []);
+
+  // Add error handling for model initialization
+  useEffect(() => {
+    if (!model) {
+      setError('Failed to initialize AI model. Please check your API key configuration.');
+    }
+  }, [model]);
+
   // Handle file selection
-  const handleFileSelect = (e) => {
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement> | DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragActive(false);
 
-    const file =
-      e.target.files?.[0] || (e.dataTransfer?.files && e.dataTransfer.files[0]);
+    let file: File | undefined;
+    if ('files' in e.target && e.target.files?.[0]) {
+      file = e.target.files[0];
+    } else if ('dataTransfer' in e && e.dataTransfer?.files?.[0]) {
+      file = e.dataTransfer.files[0];
+    }
 
     if (file && file.type.startsWith("image/")) {
       setImage(file);
       setPreview(URL.createObjectURL(file));
-      // Switch to upload tab if not already there
       setActiveTab("upload");
     }
   };
@@ -204,17 +300,19 @@ const AIFashionAssistant = () => {
   // Activate camera capture
   const activateCamera = () => {
     setCaptureDevice(true);
-    // If we're on mobile, use the camera directly
-    if (fileInputRef.current && navigator.mediaDevices) {
-      fileInputRef.current.setAttribute("capture", "environment");
-      fileInputRef.current.click();
+    const input = fileInputRef.current;
+    if (!input) return;
+
+    if (navigator.mediaDevices) {
+      input.setAttribute("capture", "environment");
+      input.click();
     } else {
-      fileInputRef.current.click();
+      input.click();
     }
   };
 
   // Drag and drop handlers
-  const handleDrag = (e) => {
+  const handleDrag = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -225,7 +323,7 @@ const AIFashionAssistant = () => {
     }
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
@@ -261,12 +359,72 @@ const AIFashionAssistant = () => {
     document.body.removeChild(element);
   };
 
-  // Submit to Gemini API for analysis with enhanced prompt
+  // Toggle view modes
+  const toggleViewMode = () => {
+    if (viewMode === "split") setViewMode("output");
+    else if (viewMode === "output") setViewMode("input");
+    else setViewMode("split");
+  };
+
+  // Loader animation for AI analysis
+  const LoaderAnimation = () => (
+    <div className="flex flex-col items-center justify-center h-40">
+      <motion.div
+        animate={{ rotate: 360 }}
+        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+        className="w-10 h-10 border-4 border-zeus-gold border-t-transparent rounded-full mb-4"
+      />
+      <div className="flex flex-col items-center">
+        <span className="text-zeus-gold font-bold tracking-wide mb-1">
+          Analyzing your outfit...
+        </span>
+        <span className="text-black text-sm">
+          Using {ANALYSIS_MODES[selectedMode].name}
+        </span>
+      </div>
+    </div>
+  );
+
+  // Function to load a history item
+  const loadHistoryItem = (item: HistoryItem) => {
+    setPreview(item.preview);
+    setResponseText(item.response);
+    setSelectedMode(item.mode);
+    setShowResults(true);
+    setHistoryExpanded(false);
+    
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const file = new File([blob], "history-image.jpg", {
+          type: "image/jpeg",
+        });
+        setImage(file);
+      }, "image/jpeg");
+    };
+    img.src = item.preview;
+  };
+
+  // Update handleSubmit with better error handling
   const handleSubmit = async () => {
     if (!image) return;
+    if (!model) {
+      setError('AI model is not initialized. Please check your API key configuration.');
+      return;
+    }
+
     setLoading(true);
     setResponseText("");
-    setShowResults(false); // Reset animation
+    setShowResults(false);
+    setError(null);
 
     try {
       const imagePart = await fileToGenerativePart(image);
@@ -289,13 +447,10 @@ const AIFashionAssistant = () => {
       });
 
       const response = await result.response;
-      const text =
-        typeof response.text === "function"
-          ? await response.text()
-          : response.text;
+      const text = typeof response.text === "function" ? await response.text() : response.text;
 
       setResponseText(text);
-      setShowResults(true); // Trigger animation to show results
+      setShowResults(true);
 
       // Extract style tags for highlighting
       const extractedTags = text
@@ -310,7 +465,6 @@ const AIFashionAssistant = () => {
             line.length < 100
         )
         .map((line) => {
-          // Extract meaningful terms
           const words = line
             .replace(/[^\w\s]/gi, " ")
             .split(" ")
@@ -354,7 +508,6 @@ const AIFashionAssistant = () => {
       ]);
 
       // Auto set view mode to split on desktop or output on mobile
-      const isMobile = window.innerWidth < 768;
       if (isMobile) {
         setViewMode("output");
       } else {
@@ -367,97 +520,12 @@ const AIFashionAssistant = () => {
       }
     } catch (error) {
       console.error("Error:", error);
-      setResponseText(
-        "Sorry, there was an error analyzing your image. Please try again."
-      );
+      setError(error instanceof Error ? error.message : "An error occurred while analyzing your image. Please try again.");
+      setResponseText("");
     } finally {
       setLoading(false);
     }
   };
-
-  // Function to load a history item
-  const loadHistoryItem = (item) => {
-    setPreview(item.preview);
-    setResponseText(item.response);
-    setSelectedMode(item.mode || "standard");
-    setShowResults(true);
-    setHistoryExpanded(false);
-    // Create a temporary object URL for the history item
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      canvas.toBlob((blob) => {
-        const file = new File([blob], "history-image.jpg", {
-          type: "image/jpeg",
-        });
-        setImage(file);
-      });
-    };
-    img.src = item.preview;
-  };
-
-  // Toggle view modes
-  const toggleViewMode = () => {
-    if (viewMode === "split") setViewMode("output");
-    else if (viewMode === "output") setViewMode("input");
-    else setViewMode("split");
-  };
-
-  // Loader animation for AI analysis
-  const LoaderAnimation = () => (
-    <div className="flex flex-col items-center justify-center h-40">
-      <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-        className="w-10 h-10 border-4 border-zeus-gold border-t-transparent rounded-full mb-4"
-      />
-      <div className="flex flex-col items-center">
-        <span className="text-zeus-gold font-bold tracking-wide mb-1">
-          Analyzing your outfit...
-        </span>
-        <span className="text-black text-sm">
-          Using {ANALYSIS_MODES[selectedMode].name}
-        </span>
-      </div>
-    </div>
-  );
-
-  // Animation variants
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.2,
-      },
-    },
-  };
-
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: {
-      y: 0,
-      opacity: 1,
-      transition: { type: "spring", stiffness: 300, damping: 24 },
-    },
-  };
-
-  // Theme classes
-  const themeClasses = darkMode
-    ? "bg-zeus-black text-zeus-white"
-    : "bg-gray-100 text-gray-900";
-
-  const cardThemeClasses = darkMode
-    ? "bg-zeus-charcoal border-zeus-navy"
-    : "bg-white border-gray-200";
-
-  // Check if it's a mobile device
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
   return (
     <div className={`min-h-screen ${themeClasses} font-zeus flex flex-col`}>
@@ -881,9 +949,9 @@ const AIFashionAssistant = () => {
                     {Object.entries(ANALYSIS_MODES).map(([key, mode]) => (
                       <button
                         key={key}
-                        onClick={() => setSelectedMode(key)}
+                        onClick={() => setSelectedMode(key as keyof typeof ANALYSIS_MODES)}
                         className={`p-2 rounded text-xs text-center transition-all ${
-                          selectedMode === key
+                          selectedMode === key as keyof typeof ANALYSIS_MODES
                             ? "bg-zeus-gold text-white shadow-md"
                             : `${
                                 darkMode
@@ -1189,4 +1257,4 @@ const AIFashionAssistant = () => {
   );
 };
 
-export default AIFashionAssistant;
+export default AIFashionAssistant; 
