@@ -1,8 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo, ChangeEvent, DragEvent } from "react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import Imagegen from "../components/Imagegen";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  ChangeEvent,
+  DragEvent,
+} from "react";
 import {
   Upload,
   X,
@@ -12,29 +17,30 @@ import {
   Camera,
   History,
   ChevronRight,
-  Settings,
   Zap,
   Download,
   Copy,
   Check,
   RefreshCw,
-  Share2,
   ArrowRight,
   Maximize2,
   Minimize2,
   Split,
   BookOpen,
   ImageIcon,
-  ToggleRight,
-  ToggleLeft,
   Sun,
   Moon,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
 import ChatBubble from "../components/ChatBubble";
+import Imagegen from "../components/Imagegen";
+import FooterMenu from "../sections/FooterMenu";
 
-// Type definitions
+interface AIFashionAssistantProps {
+  onResult?: (text: string) => void;
+}
+
 interface HistoryItem {
   id: number;
   preview: string;
@@ -52,166 +58,45 @@ interface AnalysisMode {
 }
 
 type AnalysisModes = {
-  [K in 'standard' | 'professional' | 'quick']: AnalysisMode;
+  [K in "standard" | "professional" | "quick"]: AnalysisMode;
 };
 
-// Advanced prompts for different analysis modes
 const ANALYSIS_MODES: AnalysisModes = {
   standard: {
     name: "Standard Analysis",
     description: "Complete outfit analysis with basic recommendations",
     icon: <Sparkles size={16} />,
-    prompt: `Analyze this outfit/fashion image and provide detailed style recommendations, including skin tone and height considerations.
-
-Format your response with these sections (using bold headings):
-
-**Skin Tone Analysis:**
-* Identify predominant skin tone category (Fair, Light, Medium, Olive, Tan, Deep)
-* Analyze undertones (Cool, Warm, Neutral)
-* Suggest complementary colors for clothing/jewelry based on skin tone
-* Recommend seasonal color variations (spring/summer/fall/winter)
-
-**Dress Summary:**
-* Identify garment type and silhouette
-* Describe neckline, sleeve length, and hemline
-* Note fabric type and texture
-* Identify any patterns or embellishments
-
-**Body Proportion Recommendations:**
-* Estimate height range from image (Petite: <5'4", Average: 5'4"-5'7", Tall: >5'7")
-* Suggest styles to enhance proportions:
-  - For petite: Vertical lines, high-waisted cuts
-  - For tall: Wide-leg pants, long jackets
-  - For all: Balance ratios between top/bottom
-
-**Personalized Style Suggestions:**
-* Recommend 3 clothing items that complement both skin tone and body type
-* Suggest 2 accessory types (jewelry metals, scarf patterns) matching skin undertones
-* Propose footwear styles appropriate for estimated height
-* Recommend necklines that flatter face shape and body proportions
-
-**Adaptive Styling Tips:**
-* Day-to-night transformation suggestions
-* Seasonal layering ideas
-* Color combination strategies using skin tone palette
-* Proportion-balancing techniques based on height`,
+    prompt: `Analyze this outfit/fashion image and provide detailed style recommendations, including skin tone, dress summary, body proportion tips, personalized items, and adaptive styling, using bold markdown section headings.`,
     maxTokens: 800,
   },
   professional: {
     name: "Professional Stylist",
     description: "Advanced analysis with stylist insights",
     icon: <BookOpen size={16} />,
-    prompt: `As a professional fashion stylist with 15+ years experience in editorial and celebrity styling, analyze this outfit with expert-level attention to detail.
-
-Focus on these areas with advanced fashion terminology:
-
-**Expert Style Classification:**
-* Identify precise style categories (e.g., "minimalist Scandinavian" vs simply "minimal")
-* Reference specific designer influences visible in the styling
-* Note fashion eras/movements/subcultures reflected in the look
-
-**Elite Color Theory Analysis:**
-* Professional color wheel positioning and harmony assessment
-* Advanced seasonal color theory analysis (e.g., "Deep Winter" vs just "Winter")
-* Color psychology impact and emotional response to palette
-* Contrast ratio analysis between outfit components
-
-**Luxury Fabric & Construction Assessment:**
-* Identify specific fabrics, weights, weaves, and draping characteristics
-* Note visible construction techniques and their effect on silhouette
-* Analyze how fabric choice impacts overall look sophistication
-
-**High-End Styling Potential:**
-* Professional styling techniques to elevate the look
-* Editorial-worthy composition suggestions
-* Red carpet/special event adaptation possibilities
-* Contemporary trend alignment or intentional divergence
-
-**Fashion Forward Recommendations:**
-* Cite specific current designer collections with complementary pieces
-* Suggest luxury alternatives for each element
-* Advanced accessorizing strategies from recent fashion weeks
-* Outfit evolution possibilities for coming fashion seasons`,
+    prompt: `As a professional stylist, provide expert-level analysis: precise style classification, advanced color theory, fabric/construction assessment, high-end styling potential, and fashion-forward recommendations.`,
     maxTokens: 1000,
   },
   quick: {
     name: "Quick Style Tips",
     description: "Fast analysis with key recommendations",
     icon: <Zap size={16} />,
-    prompt: `Give a super concise style analysis of this outfit image. Keep it brief but insightful!
-
-Provide just these four short sections:
-
-**Style Summary:**
-One-sentence overview of the style category and overall look
-
-**Best Features:**
-Bulletpoint the 2-3 strongest elements of this outfit
-
-**Quick Improvement Tips:**
-Bulletpoint 2-3 simple changes that would enhance this outfit
-
-**Perfect For:**
-List 1-2 ideal occasions/settings where this outfit would shine`,
+    prompt: `Give a concise style analysis with four brief sections: Style Summary; Best Features (2-3 bullets); Quick Improvement Tips (2-3 bullets); Perfect For (1-2 occasions).`,
     maxTokens: 400,
   },
 };
 
-// Configuration moved to a separate constant
-const CONFIG = {
-  API_KEY: process.env.NEXT_PUBLIC_GEMINIFLASH_API_KEY || '',
-  MODEL: "gemini-1.5-flash",
-} as const;
+type Part =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
 
-// Add error handling for missing API key
-if (!CONFIG.API_KEY) {
-  console.error('API key is not configured. Please add NEXT_PUBLIC_GEMINIFLASH_API_KEY to your .env.local file');
-}
+type ChatMessage =
+  | { role: "system"; content: Part[] }
+  | { role: "user"; content: Part[] }
+  | { role: "assistant"; content: Part[] };
 
-// Convert file to base64 for Gemini API
-const fileToGenerativePart = async (file: File) => {
-  const base64 = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result;
-      if (typeof result === 'string') {
-        const base64Data = result.split(",")[1];
-        if (base64Data) {
-          resolve(base64Data);
-        } else {
-          reject(new Error('Failed to extract base64 data'));
-        }
-      } else {
-        reject(new Error('Failed to read file as data URL'));
-      }
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
-  return {
-    inlineData: {
-      data: base64,
-      mimeType: file.type,
-    },
-  };
-};
-
-// Initialize the model with error handling
-const initializeModel = () => {
-  try {
-    if (!CONFIG.API_KEY) {
-      throw new Error('API key is not configured');
-    }
-    const genAI = new GoogleGenerativeAI(CONFIG.API_KEY);
-    return genAI.getGenerativeModel({ model: CONFIG.MODEL });
-  } catch (error) {
-    console.error('Error initializing Gemini model:', error);
-    return null;
-  }
-};
-
-const AIFashionAssistant = () => {
+const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
+  onResult,
+}) => {
   const [image, setImage] = useState<File | null>(null);
   const [responseText, setResponseText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -224,18 +109,65 @@ const AIFashionAssistant = () => {
   const [showResults, setShowResults] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<keyof typeof ANALYSIS_MODES>("standard");
+  const [selectedMode, setSelectedMode] =
+    useState<keyof typeof ANALYSIS_MODES>("standard");
   const [showOptions, setShowOptions] = useState(false);
   const [temperature, setTemperature] = useState(0.7);
   const [activeTab, setActiveTab] = useState("upload");
   const [darkMode, setDarkMode] = useState(true);
-  const [viewMode, setViewMode] = useState<"split" | "input" | "output">("split");
+  const [viewMode, setViewMode] = useState<"split" | "input" | "output">(
+    "split"
+  );
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const responseRef = useRef<HTMLDivElement>(null);
-  const [captureDevice, setCaptureDevice] = useState(false);
 
-  // Animation variants
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+  const model = useMemo(
+    () => ({ name: "Qwen2.5-VL-7B-Instruct", baseUrl: "/api/vlm" }),
+    []
+  );
+
+  // Example: after analysis finishes
+  useEffect(() => {
+    let cancelled = false;
+    async function runSample() {
+      try {
+        const system: ChatMessage = {
+          role: "system",
+          content: [
+            {
+              type: "text",
+              text: "You are a fashion stylist. Return concise markdown with bold section headings.",
+            },
+          ],
+        };
+        const user: ChatMessage = {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Give a short fashion analysis template for testing.",
+            },
+          ],
+        };
+        const sample = await callVLM([system, user], 300, 0.4);
+        if (!cancelled) {
+          setResponseText(sample || "Style analysis ready.");
+          onResult?.(sample || "Style analysis ready.");
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    // Comment out if you only want suggestions after real image analysis
+    // runSample();
+    return () => {
+      cancelled = true;
+    };
+  }, [onResult]);
+
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -256,38 +188,27 @@ const AIFashionAssistant = () => {
     },
   };
 
-  // Theme classes
   const themeClasses = darkMode
     ? "bg-zeus-black text-zeus-white"
     : "bg-gray-100 text-gray-900";
-
   const cardThemeClasses = darkMode
     ? "bg-zeus-charcoal border-zeus-navy"
     : "bg-white border-gray-200";
 
-  // Check if it's a mobile device
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-
-  // Initialize the model
-  const model = useMemo(() => initializeModel(), []);
-
-  // Add error handling for model initialization
-  useEffect(() => {
-    if (!model) {
-      setError('Failed to initialize AI model. Please check your API key configuration.');
-    }
-  }, [model]);
-
-  // Handle file selection
-  const handleFileSelect = (e: ChangeEvent<HTMLInputElement> | DragEvent<HTMLDivElement>) => {
+  const handleFileSelect = (
+    e: ChangeEvent<HTMLInputElement> | DragEvent<HTMLDivElement>
+  ) => {
     e.preventDefault();
     setDragActive(false);
 
     let file: File | undefined;
-    if ('files' in e.target && e.target.files?.[0]) {
-      file = e.target.files[0];
-    } else if ('dataTransfer' in e && e.dataTransfer?.files?.[0]) {
-      file = e.dataTransfer.files[0];
+    if ("files" in e.target && (e.target as HTMLInputElement).files?.[0]) {
+      file = (e.target as HTMLInputElement).files![0];
+    } else if (
+      "dataTransfer" in e &&
+      (e as DragEvent<HTMLDivElement>).dataTransfer?.files?.[0]
+    ) {
+      file = (e as DragEvent<HTMLDivElement>).dataTransfer!.files![0];
     }
 
     if (file && file.type.startsWith("image/")) {
@@ -297,21 +218,6 @@ const AIFashionAssistant = () => {
     }
   };
 
-  // Activate camera capture
-  const activateCamera = () => {
-    setCaptureDevice(true);
-    const input = fileInputRef.current;
-    if (!input) return;
-
-    if (navigator.mediaDevices) {
-      input.setAttribute("capture", "environment");
-      input.click();
-    } else {
-      input.click();
-    }
-  };
-
-  // Drag and drop handlers
   const handleDrag = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -330,7 +236,6 @@ const AIFashionAssistant = () => {
     handleFileSelect(e);
   };
 
-  // Clear selected image
   const clearImage = () => {
     setImage(null);
     setPreview("");
@@ -339,7 +244,6 @@ const AIFashionAssistant = () => {
     setShowResults(false);
   };
 
-  // Copy response to clipboard
   const copyToClipboard = () => {
     const textToCopy = responseText.replace(/\*\*/g, "");
     navigator.clipboard.writeText(textToCopy).then(() => {
@@ -348,7 +252,6 @@ const AIFashionAssistant = () => {
     });
   };
 
-  // Download response as markdown
   const downloadResponse = () => {
     const element = document.createElement("a");
     const file = new Blob([responseText], { type: "text/markdown" });
@@ -359,67 +262,61 @@ const AIFashionAssistant = () => {
     document.body.removeChild(element);
   };
 
-  // Toggle view modes
   const toggleViewMode = () => {
     if (viewMode === "split") setViewMode("output");
     else if (viewMode === "output") setViewMode("input");
     else setViewMode("split");
   };
 
-  // Loader animation for AI analysis
-  const LoaderAnimation = () => (
-    <div className="flex flex-col items-center justify-center h-40">
-      <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-        className="w-10 h-10 border-4 border-zeus-gold border-t-transparent rounded-full mb-4"
-      />
-      <div className="flex flex-col items-center">
-        <span className="text-zeus-gold font-bold tracking-wide mb-1">
-          Analyzing your outfit...
-        </span>
-        <span className="text-black text-sm">
-          Using {ANALYSIS_MODES[selectedMode].name}
-        </span>
-      </div>
-    </div>
-  );
-
-  // Function to load a history item
   const loadHistoryItem = (item: HistoryItem) => {
     setPreview(item.preview);
     setResponseText(item.response);
     setSelectedMode(item.mode);
     setShowResults(true);
     setHistoryExpanded(false);
-    
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      
-      ctx.drawImage(img, 0, 0);
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const file = new File([blob], "history-image.jpg", {
-          type: "image/jpeg",
-        });
-        setImage(file);
-      }, "image/jpeg");
-    };
-    img.src = item.preview;
   };
 
-  // Update handleSubmit with better error handling
+  async function uploadImage(file: File): Promise<string> {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/upload", { method: "POST", body: fd }); // ✅ Correct endpoint
+    if (!r.ok) throw new Error(await r.text());
+    const { url, error } = await r.json();
+    if (error) throw new Error(error);
+    return url as string;
+  }
+
+  async function callVLM(
+    messages: ChatMessage[],
+    max_tokens: number,
+    temperature: number
+  ): Promise<string> {
+    const r = await fetch("/api/vlm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "Qwen/Qwen2.5-VL-7B-Instruct",
+        messages,
+        temperature,
+        max_tokens,
+      }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const json = await r.json();
+    const content = json?.choices?.[0]?.message?.content;
+    if (typeof content === "string") return content as string;
+    if (Array.isArray(content)) {
+      return content
+        .map((c: any) =>
+          c?.type === "text" && typeof c?.text === "string" ? c.text : ""
+        )
+        .join("\n");
+    }
+    return "";
+  }
+
   const handleSubmit = async () => {
     if (!image) return;
-    if (!model) {
-      setError('AI model is not initialized. Please check your API key configuration.');
-      return;
-    }
 
     setLoading(true);
     setResponseText("");
@@ -427,32 +324,30 @@ const AIFashionAssistant = () => {
     setError(null);
 
     try {
-      const imagePart = await fileToGenerativePart(image);
+      const imageUrl = await uploadImage(image);
 
-      // Get the selected mode's prompt
       const selectedPrompt = ANALYSIS_MODES[selectedMode].prompt;
       const maxTokens = ANALYSIS_MODES[selectedMode].maxTokens;
 
-      const result = await model.generateContent({
-        contents: [
-          {
-            role: "user",
-            parts: [imagePart, { text: selectedPrompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: temperature,
-          maxOutputTokens: maxTokens,
+      const systemPrompt =
+        "You are a helpful fashion stylist. Analyze the image and respond in clean, structured markdown with bold section headings as requested.";
+
+      const messages: ChatMessage[] = [
+        { role: "system", content: [{ type: "text", text: systemPrompt }] },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: selectedPrompt },
+            { type: "image_url", image_url: { url: imageUrl } },
+          ],
         },
-      });
+      ];
 
-      const response = await result.response;
-      const text = typeof response.text === "function" ? await response.text() : response.text;
-
+      const text = await callVLM(messages, maxTokens, temperature);
       setResponseText(text);
+      onResult?.(text);
       setShowResults(true);
 
-      // Extract style tags for highlighting
       const extractedTags = text
         .split("\n")
         .filter(
@@ -469,8 +364,8 @@ const AIFashionAssistant = () => {
             .replace(/[^\w\s]/gi, " ")
             .split(" ")
             .filter(
-              (word) =>
-                word.length > 3 &&
+              (w) =>
+                w.length > 3 &&
                 ![
                   "style",
                   "with",
@@ -480,7 +375,7 @@ const AIFashionAssistant = () => {
                   "would",
                   "could",
                   "should",
-                ].includes(word.toLowerCase())
+                ].includes(w.toLowerCase())
             );
           return words[0] || "";
         })
@@ -489,38 +384,31 @@ const AIFashionAssistant = () => {
 
       setStyleTags(extractedTags);
 
-      // Save to history with timestamp
-      const now = new Date();
-      const timestamp = now.toLocaleTimeString([], {
+      const timestamp = new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
       });
-
       setHistory((prev) => [
         ...prev,
         {
           id: Date.now(),
-          preview: preview,
+          preview,
           response: text,
-          timestamp: timestamp,
+          timestamp,
           mode: selectedMode,
         },
       ]);
 
-      // Auto set view mode to split on desktop or output on mobile
-      if (isMobile) {
-        setViewMode("output");
-      } else {
-        setViewMode("split");
-      }
-
-      // Scroll to response if on mobile
-      if (isMobile && responseRef.current) {
+      if (isMobile) setViewMode("output");
+      else setViewMode("split");
+      if (isMobile && responseRef.current)
         responseRef.current.scrollIntoView({ behavior: "smooth" });
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      setError(error instanceof Error ? error.message : "An error occurred while analyzing your image. Please try again.");
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.message ||
+          "An error occurred while analyzing your image. Please try again."
+      );
       setResponseText("");
     } finally {
       setLoading(false);
@@ -529,14 +417,13 @@ const AIFashionAssistant = () => {
 
   return (
     <div className={`min-h-screen ${themeClasses} font-zeus flex flex-col`}>
-      {/* Main Header */}
+      {/* Header */}
       <header
         className={`py-3 px-4 ${
           darkMode ? "bg-zeus-navy" : "bg-white border-b border-gray-200"
         } sticky top-0 z-30 rounded-2xl mt-3`}
       >
         <div className="max-w-7xl mx-auto flex justify-between items-center">
-          {/* Zeus Logo and Title */}
           <div className="flex items-center space-x-3">
             <div className="relative h-12 w-12 flex-shrink-0">
               <img
@@ -569,7 +456,6 @@ const AIFashionAssistant = () => {
               </div>
             </div>
           </div>
-          {/* Light/Dark Mode Switch */}
           <div className="ml-6 flex items-center">
             <button
               onClick={() => setDarkMode(!darkMode)}
@@ -586,7 +472,6 @@ const AIFashionAssistant = () => {
               aria-label="Toggle light/dark mode"
               type="button"
             >
-              {/* Animated track icons */}
               <span className="absolute left-2 top-1/2 -translate-y-1/2">
                 <Sun
                   className={`w-4 h-4 transition-colors duration-300 ${
@@ -605,7 +490,6 @@ const AIFashionAssistant = () => {
                   }`}
                 />
               </span>
-              {/* Animated knob */}
               <span
                 className={`
                   w-7 h-7 rounded-full bg-white shadow-lg flex items-center justify-center
@@ -624,111 +508,6 @@ const AIFashionAssistant = () => {
           </div>
         </div>
       </header>
-
-      {/* History Sidebar */}
-      <AnimatePresence>
-        {historyExpanded && (
-          <motion.div
-            initial={{ x: "100%", opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: "100%", opacity: 0 }}
-            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className={`fixed right-0 top-0 bottom-0 w-full md:w-80 ${
-              darkMode ? "bg-zeus-navy" : "bg-white"
-            } shadow-xl z-50 flex flex-col`}
-          >
-            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-              <h2 className="zeus-heading text-lg">Analysis History</h2>
-              <button
-                onClick={() => setHistoryExpanded(false)}
-                className="p-1.5 rounded-full hover:bg-zeus-navy"
-              >
-                <X size={18} className="text-zeus-silver" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-2">
-              {history.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                  <History
-                    size={40}
-                    className="text-zeus-silver opacity-30 mb-3"
-                  />
-                  <p className="text-zeus-silver">No analysis history yet</p>
-                  <p className="text-sm text-zeus-silver opacity-70 mt-2">
-                    Your fashion analyses will appear here
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {history.map((item, index) => (
-                    <motion.div
-                      key={item.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      className={`p-3 rounded-lg cursor-pointer ${
-                        darkMode
-                          ? "hover:bg-zeus-charcoal"
-                          : "hover:bg-gray-100"
-                      } transition-colors`}
-                      onClick={() => loadHistoryItem(item)}
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className="h-14 w-14 rounded-md overflow-hidden flex-shrink-0 bg-black">
-                          <img
-                            src={item.preview}
-                            alt="History"
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span
-                              className={`text-xs ${
-                                darkMode ? "text-zeus-silver" : "text-gray-500"
-                              }`}
-                            >
-                              {item.timestamp}
-                            </span>
-                            <span className="text-xs bg-zeus-navy text-zeus-gold px-2 py-0.5 rounded-full">
-                              {ANALYSIS_MODES[item.mode || "standard"].name}
-                            </span>
-                          </div>
-                          <p
-                            className={`text-sm mt-1 truncate ${
-                              darkMode ? "text-zeus-white" : "text-gray-800"
-                            }`}
-                          >
-                            {item.response.split("\n")[0].replace(/\*\*/g, "")}
-                          </p>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {history.length > 0 && (
-              <div className="p-3 border-t border-gray-700">
-                <button
-                  onClick={() => {
-                    if (
-                      confirm("Are you sure you want to clear all history?")
-                    ) {
-                      setHistory([]);
-                    }
-                  }}
-                  className="text-sm text-zeus-silver hover:text-zeus-gold transition-colors w-full text-center"
-                >
-                  Clear History
-                </button>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col md:flex-row">
@@ -774,7 +553,7 @@ const AIFashionAssistant = () => {
           </div>
         )}
 
-        {/* Left Panel (Input) - Only shown in split view or input view */}
+        {/* Left Panel (Input) */}
         {(viewMode === "split" || viewMode === "input" || !showResults) && (
           <div
             className={`flex-1 p-4 ${
@@ -787,7 +566,7 @@ const AIFashionAssistant = () => {
                   : "block",
             }}
           >
-            {/* Tabs for different input methods */}
+            {/* Tabs */}
             <div className="flex border-b border-gray-700 mb-6">
               <button
                 onClick={() => setActiveTab("upload")}
@@ -803,7 +582,13 @@ const AIFashionAssistant = () => {
                 Upload
               </button>
               <button
-                onClick={() => activateCamera()}
+                onClick={() => {
+                  const input = fileInputRef.current;
+                  if (input) {
+                    input.setAttribute("capture", "environment");
+                    input.click();
+                  }
+                }}
                 className={`px-4 py-2 text-sm font-medium flex items-center ${
                   activeTab === "camera"
                     ? "border-b-2 border-zeus-gold text-zeus-gold"
@@ -866,16 +651,13 @@ const AIFashionAssistant = () => {
               {/* Upload Area */}
               <motion.div
                 variants={itemVariants}
-                className={`relative border-2 border-dashed rounded-xl p-8 mx-6 mb-6 text-center transition-all duration-300
-                  ${
-                    dragActive
-                      ? "border-zeus-gold bg-zeus-navy/20"
-                      : `border-zeus-silver hover:border-zeus-gold ${
-                          darkMode
-                            ? "hover:bg-zeus-navy/10"
-                            : "hover:bg-gray-50"
-                        }`
-                  }`}
+                className={`relative border-2 border-dashed rounded-xl p-8 mx-6 mb-6 text-center transition-all duration-300 ${
+                  dragActive
+                    ? "border-zeus-gold bg-zeus-navy/20"
+                    : `border-zeus-silver hover:border-zeus-gold ${
+                        darkMode ? "hover:bg-zeus-navy/10" : "hover:bg-gray-50"
+                      }`
+                }`}
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
@@ -949,9 +731,11 @@ const AIFashionAssistant = () => {
                     {Object.entries(ANALYSIS_MODES).map(([key, mode]) => (
                       <button
                         key={key}
-                        onClick={() => setSelectedMode(key as keyof typeof ANALYSIS_MODES)}
+                        onClick={() =>
+                          setSelectedMode(key as keyof typeof ANALYSIS_MODES)
+                        }
                         className={`p-2 rounded text-xs text-center transition-all ${
-                          selectedMode === key as keyof typeof ANALYSIS_MODES
+                          selectedMode === (key as keyof typeof ANALYSIS_MODES)
                             ? "bg-zeus-gold text-white shadow-md"
                             : `${
                                 darkMode
@@ -966,10 +750,6 @@ const AIFashionAssistant = () => {
                         {mode.name}
                       </button>
                     ))}
-                  </div>
-
-                  <div className="text-xs text-center opacity-75">
-                    {ANALYSIS_MODES[selectedMode].description}
                   </div>
 
                   {showOptions && (
@@ -1000,9 +780,7 @@ const AIFashionAssistant = () => {
                         <div className="h-1 w-full bg-gray-700 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-zeus-gold"
-                            style={{
-                              width: `${temperature * 100}%`,
-                            }}
+                            style={{ width: `${temperature * 100}%` }}
                           ></div>
                         </div>
                       </div>
@@ -1031,14 +809,14 @@ const AIFashionAssistant = () => {
                 </button>
               </motion.div>
 
-              {/* Add the Imagegen component here */}
+              {/* Optional: your Imagegen component below results */}
               {showResults && responseText && (
                 <div className="mt-6">
                   <Imagegen responseText={responseText} darkMode={darkMode} />
                 </div>
               )}
 
-              {/* Tips card */}
+              {/* Tips */}
               {!preview && (
                 <motion.div
                   variants={itemVariants}
@@ -1076,14 +854,9 @@ const AIFashionAssistant = () => {
                         <ul className="mt-3 text-xs space-y-2 pl-6 list-disc">
                           <li>Use good lighting for accurate color analysis</li>
                           <li>Capture the full outfit from head to toe</li>
-                          <li>
-                            Stand against a neutral background for best results
-                          </li>
-                          <li>
-                            For composition photos, place items cleanly without
-                            overlap
-                          </li>
-                          <li>Choose high-resolution, clear images</li>
+                          <li>Stand against a neutral background</li>
+                          <li>Keep items cleanly placed for flat lays</li>
+                          <li>Choose high-resolution images</li>
                         </ul>
                       </motion.div>
                     )}
@@ -1094,7 +867,7 @@ const AIFashionAssistant = () => {
           </div>
         )}
 
-        {/* Right Panel (Output) - Only shown in split view or output view */}
+        {/* Right Panel (Output) */}
         {(viewMode === "split" || viewMode === "output") && showResults && (
           <div
             ref={responseRef}
@@ -1105,7 +878,6 @@ const AIFashionAssistant = () => {
             <div
               className={`${cardThemeClasses} rounded-xl shadow-lg overflow-hidden h-full flex flex-col mb-6`}
             >
-              {/* Header with view toggle */}
               <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                 <div className="flex items-center space-x-2">
                   <div className="p-1.5 bg-zeus-gold rounded-full">
@@ -1116,7 +888,6 @@ const AIFashionAssistant = () => {
                   </h3>
                 </div>
                 <div className="flex space-x-2">
-                  {/* Mobile view toggle button */}
                   {isMobile && (
                     <button
                       onClick={toggleViewMode}
@@ -1129,7 +900,6 @@ const AIFashionAssistant = () => {
                       )}
                     </button>
                   )}
-                  {/* Copy button */}
                   <button
                     onClick={copyToClipboard}
                     className="p-1.5 rounded-full hover:bg-zeus-navy"
@@ -1141,7 +911,6 @@ const AIFashionAssistant = () => {
                       <Copy size={16} className="text-zeus-silver" />
                     )}
                   </button>
-                  {/* Download button */}
                   <button
                     onClick={downloadResponse}
                     className="p-1.5 rounded-full hover:bg-zeus-navy"
@@ -1149,7 +918,6 @@ const AIFashionAssistant = () => {
                   >
                     <Download size={16} className="text-zeus-silver" />
                   </button>
-                  {/* Fullscreen toggle */}
                   <button
                     onClick={() => setFullscreen(!fullscreen)}
                     className="p-1.5 rounded-full hover:bg-zeus-navy"
@@ -1170,7 +938,25 @@ const AIFashionAssistant = () => {
                 }`}
               >
                 {loading ? (
-                  <LoaderAnimation />
+                  <div className="flex flex-col items-center justify-center h-40">
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{
+                        repeat: Infinity,
+                        duration: 1,
+                        ease: "linear",
+                      }}
+                      className="w-10 h-10 border-4 border-zeus-gold border-t-transparent rounded-full mb-4"
+                    />
+                    <div className="flex flex-col items-center">
+                      <span className="text-zeus-gold font-bold tracking-wide mb-1">
+                        Analyzing your outfit...
+                      </span>
+                      <span className="text-black text-sm">
+                        Using {ANALYSIS_MODES[selectedMode].name}
+                      </span>
+                    </div>
+                  </div>
                 ) : (
                   <motion.div
                     initial={{ opacity: 0 }}
@@ -1252,9 +1038,20 @@ const AIFashionAssistant = () => {
         <p>Powered by {new Date().getFullYear()} ©️ EmA AI Solutions</p>
       </footer>
 
-      <ChatBubble analysis={responseText} model={model} />
+      {/* Provide model info to ChatBubble (kept for layout) */}
+      <ChatBubble responseText={responseText} />
+      {/* Mobile bottom tab bar */}
+      {!isMobile && (
+        <footer
+          className={`py-3 text-center text-xs ${
+            darkMode ? "text-zeus-silver" : "text-gray-500"
+          }`}
+        >
+          Powered by {new Date().getFullYear()} ©️ EmA AI Solutions
+        </footer>
+      )}
     </div>
   );
 };
 
-export default AIFashionAssistant; 
+export default AIFashionAssistant;
