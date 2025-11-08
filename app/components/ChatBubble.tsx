@@ -10,6 +10,7 @@ import {
   CircleUserRound,
   Upload,
   Trash,
+  Sparkles,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import Image from "next/image";
@@ -24,7 +25,6 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-// OpenAI-compatible multi-part content
 type MsgTextPart = { type: "text"; text: string };
 type MsgImagePart = { type: "image_url"; image_url: { url: string } };
 type MsgPart = MsgTextPart | MsgImagePart;
@@ -65,7 +65,6 @@ function normalizeAssistantContent(content: any): string {
   return "";
 }
 
-// Language detection (simple heuristic)
 function detectLanguage(text: string): string {
   const t = text.trim();
   if (!t) return "en";
@@ -119,7 +118,6 @@ async function callVLM(messages: OAIMessage[], lang: string): Promise<string> {
   return normalizeAssistantContent(content);
 }
 
-// Extract headings/bullets from analysis to propose follow-ups
 function deriveSuggestionsFromResponseText(responseText: string): string[] {
   if (!responseText) return [];
   const lines = responseText
@@ -158,7 +156,6 @@ function deriveSuggestionsFromResponseText(responseText: string): string[] {
   return unique.slice(0, 12);
 }
 
-// Upload image via /api/upload and return a public URL
 async function uploadImage(file: File): Promise<string> {
   const fd = new FormData();
   fd.append("file", file);
@@ -178,7 +175,7 @@ const ChatBubble: React.FC<{
   userName?: string;
   avatar?: string;
   onError?: (e: any) => void;
-  responseText?: string; // pass analysis on /zeusAssistant to enable suggestions
+  responseText?: string;
 }> = ({
   title = "Zeus Assistant",
   welcomeMessage = "Hi! Ask about hours, returns, tracking, shipping, sizes, locations, or latest collections.",
@@ -194,30 +191,37 @@ const ChatBubble: React.FC<{
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
-
   const [attachedImage, setAttachedImage] = useState<File | null>(null);
   const [attachedPreview, setAttachedPreview] = useState<string>("");
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname();
   const useVLM = pathname === "/zeusAssistant";
-  // Treat null/undefined/whitespace-only as not existing
+
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Suggestions
   const hasAnalysis = useMemo(
     () => !!responseText && responseText.trim().length > 0,
     [responseText]
   );
-  // Build suggestion pool (only if responseText exists on /zeusAssistant)
   const poolSuggestions = useMemo(() => {
     if (useVLM) {
-      if (!hasAnalysis) return []; // no top suggestions until analysis exists
+      if (!hasAnalysis) return [];
       const staticAdvanced = [
         "Suggest 3 alternative color palettes that complement my skin tone and explain why.",
         "Recommend silhouette adjustments to balance my proportions (tops, bottoms, hemlines).",
         "Curate a 7‑piece capsule with mix‑and‑match outfit pairings.",
         "Give fabric and construction guidelines to prefer vs. avoid and why.",
-        "Propose accessory rules (scale, metal tones, textures) with do’s and don’ts.",
+        "Propose accessory rules (scale, metal tones, textures) with do's and don'ts.",
         "Create occasion‑based outfits (work, date night, smart‑casual) from this analysis.",
         "Translate this style into seasonal updates with layering strategies.",
         "Provide a shopping checklist with priorities and budget tiers (save vs. invest).",
@@ -228,17 +232,18 @@ const ChatBubble: React.FC<{
       ];
       const derived = deriveSuggestionsFromResponseText(responseText!);
       const seen = new Set<string>();
-      const merged = [...staticAdvanced, ...derived].filter((s) => {
-        const k = s.toLowerCase();
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-      return merged.slice(0, 24);
+      return [...staticAdvanced, ...derived]
+        .filter((s) => {
+          const k = s.toLowerCase();
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        })
+        .slice(0, 24);
     }
     return getStoreSuggestions();
   }, [useVLM, hasAnalysis, responseText]);
-  // Rotate suggestions 4 at a time
+
   const [suggestionsQueue, setSuggestionsQueue] =
     useState<string[]>(poolSuggestions);
   const [visibleSuggestions, setVisibleSuggestions] = useState<string[]>(
@@ -252,22 +257,6 @@ const ChatBubble: React.FC<{
     setSuggestionsQueue(arr);
     setVisibleSuggestions(arr.slice(0, 4));
   }, [poolSuggestions]);
-  useEffect(() => {
-    console.log(
-      "hasAnalysis",
-      hasAnalysis,
-      "pool",
-      poolSuggestions.length,
-      "visible",
-      visibleSuggestions.length
-    );
-  }, [hasAnalysis, poolSuggestions, visibleSuggestions]);
-
-  useEffect(() => {
-    if (open && messagesEndRef.current)
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    if (open && inputRef.current) inputRef.current.focus();
-  }, [open, chatMessages, chatLoading]);
 
   const rotateSuggestions = () => {
     if (suggestionsQueue.length <= 4) {
@@ -287,7 +276,6 @@ const ChatBubble: React.FC<{
   };
 
   const handleFilePick = () => fileInputRef.current?.click();
-
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f && f.type.startsWith("image/")) {
@@ -295,7 +283,6 @@ const ChatBubble: React.FC<{
       setAttachedPreview(URL.createObjectURL(f));
     }
   };
-
   const clearImage = () => {
     setAttachedImage(null);
     if (attachedPreview) URL.revokeObjectURL(attachedPreview);
@@ -306,8 +293,7 @@ const ChatBubble: React.FC<{
     if ((!chatInput.trim() && !attachedImage) || chatLoading) return;
 
     const userText = chatInput.trim();
-    const lang = detectLanguage(userText || "hi"); // default hint if only image
-
+    const lang = detectLanguage(userText || "hi");
     const userMessageText = userText || "(image attached)";
     const userMessage: ChatMessage = {
       role: "user",
@@ -321,9 +307,7 @@ const ChatBubble: React.FC<{
 
     try {
       let imageUrl: string | undefined;
-      if (useVLM && attachedImage) {
-        imageUrl = await uploadImage(attachedImage);
-      }
+      if (useVLM && attachedImage) imageUrl = await uploadImage(attachedImage);
 
       let aiText = "";
       if (useVLM) {
@@ -333,7 +317,6 @@ const ChatBubble: React.FC<{
         );
         aiText = await callVLM(historyMessages, lang);
       } else {
-        // Outside /zeusAssistant: try store first if there's text; if no text or unknown, go AI
         let useAI = false;
         let storeAnswer = "";
         if (userText) {
@@ -344,10 +327,7 @@ const ChatBubble: React.FC<{
             ) ||
             storeAnswer.toLowerCase().includes("contact our customer service");
           useAI = isUnknown;
-        } else {
-          useAI = true; // image-only on non-assistant route -> AI
-        }
-
+        } else useAI = true;
         if (!useAI) {
           aiText =
             lang === "en"
@@ -401,7 +381,6 @@ const ChatBubble: React.FC<{
     ? "Fashion pro mode: Ask deeper style questions, upload a look for analysis, or request refined recommendations."
     : welcomeMessage;
 
-  // Top-of-thread visibility
   const showTopSuggestions =
     showSuggestions &&
     chatMessages.length === 0 &&
@@ -409,40 +388,277 @@ const ChatBubble: React.FC<{
     visibleSuggestions.length > 0 &&
     (!useVLM || (useVLM && hasAnalysis));
 
+  // ============ Mobile Full-Screen View ============
+  if (useVLM && isMobile) {
+    return (
+      <div className="fixed inset-0 z-50 flex top-12 h-[70vh] flex-col m-2 pb-10 rounded-3xl overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 shadow-2xl border border-amber-500/20 backdrop-blur-xl">
+        {/* Decorative gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-amber-600/5 pointer-events-none"></div>
+
+        {/* Messages Container */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 relative z-10 scrollbar-thin scrollbar-thumb-amber-500/30 scrollbar-track-transparent">
+          {chatMessages.length === 0 && (
+            <div className="text-center py-8 px-4 rounded-2xl bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-amber-500/10 backdrop-blur-sm">
+              <div className="flex justify-center mb-3">
+                <div className="p-3 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 shadow-lg shadow-amber-500/20">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+              </div>
+              <p className="text-slate-200 text-sm font-medium leading-relaxed">
+                {routeWelcome}
+              </p>
+              {!responseText && (
+                <p className="text-slate-400 text-xs mt-3 leading-relaxed">
+                  Upload an outfit image and ask a question to get started.
+                </p>
+              )}
+            </div>
+          )}
+
+          {chatMessages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex gap-3 ${
+                msg.role === "user" ? "justify-end" : "justify-start"
+              } animate-fade-in`}
+            >
+              {msg.role === "ai" && (
+                <div className="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/20">
+                  <Image
+                    src="/logo.jpg"
+                    alt="AI"
+                    width={36}
+                    height={36}
+                    className="object-cover"
+                  />
+                </div>
+              )}
+
+              <div className="flex flex-col max-w-[82%]">
+                <div
+                  className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-lg backdrop-blur-sm ${
+                    msg.role === "user"
+                      ? "bg-gradient-to-br from-amber-500 to-amber-600 text-white rounded-tr-md shadow-amber-500/30"
+                      : "bg-gradient-to-br from-slate-800/90 to-slate-900/90 text-slate-100 rounded-tl-md border border-slate-700/50"
+                  }`}
+                >
+                  <div className="prose prose-sm prose-invert max-w-none">
+                    <ReactMarkdown>{msg.text}</ReactMarkdown>
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] text-slate-400 mt-1.5 font-medium ${
+                    msg.role === "user" ? "text-right" : "text-left"
+                  }`}
+                >
+                  {msg.timestamp.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+
+                {msg.role === "ai" && peekSuggestions(3).length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-slate-400 text-[10px] mb-2 font-medium uppercase tracking-wide">
+                      Continue with:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {peekSuggestions(3).map((s, i) => (
+                        <button
+                          key={`${idx}-inline-${i}`}
+                          onClick={() => handleSuggestionClick(s)}
+                          className="bg-slate-800/60 hover:bg-slate-700/80 text-slate-200 rounded-xl px-3 py-1.5 text-[11px] transition-all border border-slate-700/50 hover:border-amber-500/30 hover:shadow-md hover:shadow-amber-500/10 active:scale-95"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {msg.role === "user" && (
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center flex-shrink-0 shadow-lg border border-slate-600/30">
+                  <CircleUserRound className="w-5 h-5 text-slate-300" />
+                </div>
+              )}
+            </div>
+          ))}
+
+          {chatLoading && (
+            <div className="flex items-center gap-3 animate-fade-in">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                <BookOpen size={18} className="text-white animate-pulse" />
+              </div>
+              <div className="bg-gradient-to-br from-slate-800/90 to-slate-900/90 rounded-2xl px-5 py-3 border border-slate-700/50 shadow-lg">
+                <div className="flex space-x-1.5">
+                  <div className="w-2 h-2 rounded-full bg-amber-500/70 animate-bounce"></div>
+                  <div
+                    className="w-2 h-2 rounded-full bg-amber-500/70 animate-bounce"
+                    style={{ animationDelay: "0.1s" }}
+                  ></div>
+                  <div
+                    className="w-2 h-2 rounded-full bg-amber-500/70 animate-bounce"
+                    style={{ animationDelay: "0.2s" }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showTopSuggestions && (
+            <div className="mt-2 text-center animate-fade-in">
+              <p className="text-slate-400 text-xs mb-3 font-medium uppercase tracking-wide">
+                Suggested questions
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {visibleSuggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSuggestionClick(s)}
+                    className="bg-slate-800/50 hover:bg-slate-700/70 text-slate-200 rounded-xl px-3 py-2 text-xs transition-all border border-slate-700/50 hover:border-amber-500/40 hover:shadow-lg hover:shadow-amber-500/10 active:scale-95"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Area */}
+        <div className="border-t border-slate-700/50 bg-gradient-to-br from-slate-900/95 to-slate-800/95 backdrop-blur-xl p-4 relative z-10">
+          {attachedPreview && (
+            <div className="mb-3 flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
+              <img
+                src={attachedPreview}
+                alt="preview"
+                className="h-16 w-16 object-cover rounded-lg border-2 border-amber-500/30 shadow-md"
+              />
+              <button
+                onClick={clearImage}
+                className="px-3 py-1.5 text-xs rounded-lg bg-red-600/80 hover:bg-red-600 text-white flex items-center gap-1.5 transition-all shadow-md hover:shadow-lg active:scale-95"
+                title="Remove image"
+              >
+                <Trash size={14} /> Remove
+              </button>
+            </div>
+          )}
+
+          <form
+            className="flex items-end bg-slate-800/50 rounded-2xl border border-slate-700/50 focus-within:border-amber-500/50 focus-within:shadow-lg focus-within:shadow-amber-500/10 transition-all backdrop-blur-sm"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleChatSend();
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="ml-2 mb-2 p-2.5 rounded-xl bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-amber-400 transition-all active:scale-95"
+              title="Attach image"
+            >
+              <Upload size={18} />
+            </button>
+            <textarea
+              ref={inputRef}
+              className="flex-1 px-3 py-3 bg-transparent text-slate-100 text-sm focus:outline-none resize-none placeholder:text-slate-500"
+              placeholder={placeholder}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              disabled={chatLoading}
+              rows={1}
+              style={{ minHeight: "44px", maxHeight: "120px" }}
+            />
+            <button
+              type="submit"
+              className={`mr-2 mb-2 p-2.5 rounded-xl transition-all ${
+                (chatInput.trim() || attachedImage) && !chatLoading
+                  ? "bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/30 hover:shadow-xl hover:shadow-amber-500/40 active:scale-95"
+                  : "bg-slate-700/30 text-slate-600"
+              }`}
+              disabled={chatLoading || (!chatInput.trim() && !attachedImage)}
+            >
+              <Send size={18} />
+            </button>
+          </form>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={onFileChange}
+          />
+
+          <div className="flex justify-center mt-3">
+            <p className="text-slate-500 text-[10px] font-medium">
+              Powered by Qwen2.5‑VL via HF Router
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ Desktop Bubble View ============
   return (
     <div
       className={`fixed z-50 bottom-6 right-6 flex flex-col items-end ${className}`}
     >
       {open ? (
-        <div className="w-[420px] max-w-[90vw] shadow-2xl rounded-2xl overflow-hidden bg-zeus-charcoal border-2 border-zeus-gold animate-fade-in-up">
+        <div className="w-[440px] max-w-[90vw] rounded-3xl overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-2 border-amber-500/30 shadow-2xl shadow-amber-500/20 animate-fade-in backdrop-blur-xl">
+          {/* Decorative gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-amber-600/5 pointer-events-none"></div>
+
           {/* Header */}
-          <div className="flex justify-between items-center px-4 py-3 bg-zeus-navy border-b border-zeus-silver">
-            <div className="flex items-center">
-              <div className="w-8 h-8 rounded-full bg-zeus-gold flex items-center justify-center mr-3">
-                <Image src="/logo.jpg" alt="AI Logo" width={32} height={32} />
+          <div className="relative flex justify-between items-center px-5 py-4 bg-gradient-to-r from-slate-900/95 to-slate-800/95 border-b border-slate-700/50 backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/30 ring-2 ring-amber-400/20">
+                <Image
+                  src="/logo.jpg"
+                  alt="AI"
+                  width={40}
+                  height={40}
+                  className="rounded-lg"
+                />
               </div>
-              <span className="font-bold text-zeus-gold text-lg">
-                {useVLM ? "Zeus Fashion Assistant" : "Zeus Store Helper"}
-              </span>
+              <div>
+                <span className="font-bold text-amber-400 text-lg tracking-tight">
+                  {useVLM ? "Zeus Fashion Assistant" : "Zeus Store Helper"}
+                </span>
+                <p className="text-slate-400 text-[10px] font-medium">
+                  Always here to help
+                </p>
+              </div>
             </div>
             <button
               onClick={() => setOpen(false)}
-              className="p-1.5 rounded-full hover:bg-zeus-gold/20 transition"
+              className="p-2 rounded-xl hover:bg-slate-700/50 transition-all active:scale-95 group"
               aria-label="Close chat"
             >
-              <X size={20} className="text-zeus-gold" />
+              <X
+                size={20}
+                className="text-slate-400 group-hover:text-amber-400 transition-colors"
+              />
             </button>
           </div>
 
           {/* Messages */}
-          <div className="max-h-[450px] min-h-[320px] overflow-y-auto px-4 py-4 bg-zeus-charcoal flex flex-col gap-4">
+          <div className="max-h-[480px] min-h-[340px] overflow-y-auto px-5 py-5 bg-gradient-to-br from-slate-900/50 to-slate-800/50 flex flex-col gap-4 scrollbar-thin scrollbar-thumb-amber-500/30 scrollbar-track-transparent relative">
             {chatMessages.length === 0 && (
-              <div className="mb-4 pb-4 border-b border-zeus-silver/20">
-                <p className="text-zeus-silver text-sm text-center">
+              <div className="mb-4 py-6 px-5 rounded-2xl bg-gradient-to-br from-slate-800/70 to-slate-900/70 border border-amber-500/10 backdrop-blur-sm">
+                <div className="flex justify-center mb-3">
+                  <div className="p-3 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 shadow-lg shadow-amber-500/20">
+                    <Sparkles className="w-5 h-5 text-white" />
+                  </div>
+                </div>
+                <p className="text-slate-200 text-sm text-center font-medium leading-relaxed">
                   {routeWelcome}
                 </p>
                 {useVLM && !responseText && (
-                  <p className="text-zeus-silver/60 text-xs mt-2 text-center">
+                  <p className="text-slate-400 text-xs mt-3 text-center leading-relaxed">
                     Upload an outfit image and ask a question to get started.
                   </p>
                 )}
@@ -452,33 +668,37 @@ const ChatBubble: React.FC<{
             {chatMessages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`flex ${
+                className={`flex gap-3 ${
                   msg.role === "user" ? "justify-end" : "justify-start"
-                } mb-2`}
+                } mb-2 animate-fade-in`}
               >
                 {msg.role === "ai" && (
-                  <div className="w-8 h-8 rounded-full overflow-hidden bg-zeus-gold flex items-center justify-center mr-2 mt-1 flex-shrink-0">
+                  <div className="w-9 h-9 rounded-xl overflow-hidden bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/20 mt-1">
                     <Image
                       src="/logo.jpg"
-                      alt="AI Logo"
-                      width={32}
-                      height={32}
+                      alt="AI"
+                      width={36}
+                      height={36}
+                      className="object-cover"
                     />
                   </div>
                 )}
-                <div className="flex flex-col">
+
+                <div className="flex flex-col max-w-[300px]">
                   <div
-                    className={`rounded-2xl px-4 py-3 max-w-[280px] text-sm shadow-lg ${
+                    className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-lg backdrop-blur-sm ${
                       msg.role === "user"
-                        ? "bg-zeus-gold text-white rounded-tr-sm"
-                        : "bg-zeus-navy text-zeus-silver rounded-tl-sm"
+                        ? "bg-gradient-to-br from-amber-500 to-amber-600 text-white rounded-tr-md shadow-amber-500/30"
+                        : "bg-gradient-to-br from-slate-800/90 to-slate-900/90 text-slate-100 rounded-tl-md border border-slate-700/50"
                     }`}
                   >
-                    <ReactMarkdown>{msg.text}</ReactMarkdown>
+                    <div className="prose prose-sm prose-invert max-w-none">
+                      <ReactMarkdown>{msg.text}</ReactMarkdown>
+                    </div>
                   </div>
                   <span
-                    className={`text-xs text-zeus-silver/70 mt-1 ${
-                      msg.role === "user" ? "text-right" : "text-left ml-2"
+                    className={`text-[10px] text-slate-400 mt-1.5 font-medium ${
+                      msg.role === "user" ? "text-right" : "text-left ml-1"
                     }`}
                   >
                     {msg.timestamp.toLocaleTimeString([], {
@@ -487,18 +707,17 @@ const ChatBubble: React.FC<{
                     })}
                   </span>
 
-                  {/* Inline post-reply suggestions under AI answers */}
                   {msg.role === "ai" && peekSuggestions(3).length > 0 && (
-                    <div className="mt-2 ml-10">
-                      <p className="text-zeus-silver/60 text-[11px] mb-1">
-                        Suggested next:
+                    <div className="mt-3 ml-1">
+                      <p className="text-slate-400 text-[10px] mb-2 font-medium uppercase tracking-wide">
+                        Continue with:
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {peekSuggestions(3).map((s, i) => (
                           <button
-                            key={`${idx}-inline-suggest-${i}`}
+                            key={`${idx}-inline-${i}`}
                             onClick={() => handleSuggestionClick(s)}
-                            className="bg-zeus-navy/40 hover:bg-zeus-navy text-zeus-silver rounded-full px-2.5 py-1 text-[11px] transition-colors border border-zeus-silver/20"
+                            className="bg-slate-800/60 hover:bg-slate-700/80 text-slate-200 rounded-xl px-3 py-1.5 text-[11px] transition-all border border-slate-700/50 hover:border-amber-500/30 hover:shadow-md hover:shadow-amber-500/10 active:scale-95"
                           >
                             {s}
                           </button>
@@ -507,41 +726,47 @@ const ChatBubble: React.FC<{
                     </div>
                   )}
                 </div>
+
                 {msg.role === "user" && (
-                  <div className="w-8 h-8 rounded-full bg-zeus-silver/30 flex items-center justify-center ml-2 mt-1 flex-shrink-0">
-                    <CircleUserRound className="w-8 h-8 rounded-full" />
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center flex-shrink-0 shadow-lg border border-slate-600/30 mt-1">
+                    <CircleUserRound className="w-5 h-5 text-slate-300" />
                   </div>
                 )}
               </div>
             ))}
 
             {chatLoading && (
-              <div className="flex items-center">
-                <div className="w-8 h-8 rounded-full bg-zeus-gold flex items-center justify-center mr-2">
-                  <BookOpen size={16} className="text-zeus-navy" />
+              <div className="flex items-center gap-3 animate-fade-in">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                  <BookOpen size={18} className="text-white animate-pulse" />
                 </div>
-                <div className="bg-zeus-navy rounded-2xl px-4 py-3 inline-block">
-                  <div className="flex space-x-2">
-                    <div className="w-2 h-2 rounded-full bg-zeus-silver/60 animate-pulse"></div>
-                    <div className="w-2 h-2 rounded-full bg-zeus-silver/60 animate-pulse delay-100"></div>
-                    <div className="w-2 h-2 rounded-full bg-zeus-silver/60 animate-pulse delay-200"></div>
+                <div className="bg-gradient-to-br from-slate-800/90 to-slate-900/90 rounded-2xl px-5 py-3 border border-slate-700/50 shadow-lg">
+                  <div className="flex space-x-1.5">
+                    <div className="w-2 h-2 rounded-full bg-amber-500/70 animate-bounce"></div>
+                    <div
+                      className="w-2 h-2 rounded-full bg-amber-500/70 animate-bounce"
+                      style={{ animationDelay: "0.1s" }}
+                    ></div>
+                    <div
+                      className="w-2 h-2 rounded-full bg-amber-500/70 animate-bounce"
+                      style={{ animationDelay: "0.2s" }}
+                    ></div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Top-of-thread suggestions (gate by responseText on /zeusAssistant) */}
             {showTopSuggestions && (
-              <div className="mt-2 mb-2">
-                <p className="text-zeus-silver/70 text-xs mb-2 ml-1">
-                  Suggested questions:
+              <div className="mt-2 mb-2 animate-fade-in">
+                <p className="text-slate-400 text-xs mb-3 ml-1 font-medium uppercase tracking-wide">
+                  Suggested questions
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {visibleSuggestions.map((s, i) => (
                     <button
                       key={i}
                       onClick={() => handleSuggestionClick(s)}
-                      className="bg-zeus-navy/50 hover:bg-zeus-navy text-zeus-silver rounded-full px-3 py-1.5 text-xs transition-colors border border-zeus-silver/30"
+                      className="bg-slate-800/50 hover:bg-slate-700/70 text-slate-200 rounded-xl px-3 py-2 text-xs transition-all border border-slate-700/50 hover:border-amber-500/40 hover:shadow-lg hover:shadow-amber-500/10 active:scale-95"
                     >
                       {s}
                     </button>
@@ -553,20 +778,18 @@ const ChatBubble: React.FC<{
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input and image attach */}
-          <div className="border-t border-zeus-silver/30 bg-zeus-navy/30 p-3">
-            {/* Attached image preview */}
+          {/* Input Area */}
+          <div className="border-t border-slate-700/50 bg-gradient-to-br from-slate-900/95 to-slate-800/95 backdrop-blur-xl p-4 relative">
             {attachedPreview && (
-              <div className="mb-2 flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+              <div className="mb-3 flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50">
                 <img
                   src={attachedPreview}
                   alt="preview"
-                  className="h-16 w-16 object-cover rounded-md border border-zeus-silver/30"
+                  className="h-16 w-16 object-cover rounded-lg border-2 border-amber-500/30 shadow-md"
                 />
                 <button
                   onClick={clearImage}
-                  className="px-2 py-1 text-xs rounded-md bg-red-600/70 hover:bg-red-600 text-white flex items-center gap-1"
+                  className="px-3 py-1.5 text-xs rounded-lg bg-red-600/80 hover:bg-red-600 text-white flex items-center gap-1.5 transition-all shadow-md hover:shadow-lg active:scale-95"
                   title="Remove image"
                 >
                   <Trash size={14} /> Remove
@@ -575,7 +798,7 @@ const ChatBubble: React.FC<{
             )}
 
             <form
-              className="flex items-end bg-zeus-navy/50 rounded-xl border border-zeus-silver/30 focus-within:border-zeus-gold transition-colors"
+              className="flex items-end bg-slate-800/50 rounded-2xl border border-slate-700/50 focus-within:border-amber-500/50 focus-within:shadow-lg focus-within:shadow-amber-500/10 transition-all backdrop-blur-sm"
               onSubmit={(e) => {
                 e.preventDefault();
                 handleChatSend();
@@ -584,36 +807,32 @@ const ChatBubble: React.FC<{
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="ml-2 mb-2 p-2 rounded-md bg-zeus-navy/60 hover:bg-zeus-navy text-zeus-silver/90"
+                className="ml-2 mb-2 p-2.5 rounded-xl bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-amber-400 transition-all active:scale-95"
                 title="Attach image"
               >
                 <Upload size={18} />
               </button>
               <textarea
                 ref={inputRef}
-                className="flex-1 px-2 py-3 bg-transparent text-zeus-white text-sm focus:outline-none resize-none min-h-[20px] max-h-[120px]"
+                className="flex-1 px-3 py-3 bg-transparent text-slate-100 text-sm focus:outline-none resize-none placeholder:text-slate-500"
                 placeholder={placeholder}
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 disabled={chatLoading}
                 rows={1}
-                style={{ height: "auto", minHeight: "40px" }}
+                style={{ minHeight: "44px", maxHeight: "120px" }}
               />
-              <div className="flex items-center pr-2">
-                <button
-                  type="submit"
-                  className={`ml-1 p-2 rounded-full ${
-                    (chatInput.trim() || attachedImage) && !chatLoading
-                      ? "bg-zeus-gold text-white hover:bg-zeus-gold/80"
-                      : "bg-zeus-navy/50 text-zeus-silver/50"
-                  } transition-colors`}
-                  disabled={
-                    chatLoading || (!chatInput.trim() && !attachedImage)
-                  }
-                >
-                  <Send size={18} />
-                </button>
-              </div>
+              <button
+                type="submit"
+                className={`mr-2 mb-2 p-2.5 rounded-xl transition-all ${
+                  (chatInput.trim() || attachedImage) && !chatLoading
+                    ? "bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/30 hover:shadow-xl hover:shadow-amber-500/40 active:scale-95"
+                    : "bg-slate-700/30 text-slate-600"
+                }`}
+                disabled={chatLoading || (!chatInput.trim() && !attachedImage)}
+              >
+                <Send size={18} />
+              </button>
             </form>
             <input
               ref={fileInputRef}
@@ -623,8 +842,8 @@ const ChatBubble: React.FC<{
               onChange={onFileChange}
             />
 
-            <div className="flex justify-center mt-2">
-              <p className="text-zeus-silver/50 text-xs">
+            <div className="flex justify-center mt-3">
+              <p className="text-slate-500 text-[10px] font-medium">
                 {useVLM
                   ? "Powered by Qwen2.5‑VL via HF Router"
                   : "Powered by store knowledge"}
@@ -635,13 +854,22 @@ const ChatBubble: React.FC<{
       ) : (
         <button
           onClick={() => setOpen(true)}
-          className="group w-16 h-16 rounded-full bg-zeus-gold flex items-center justify-center shadow-xl hover:scale-105 transition-all duration-300 hover:bg-zeus-navy border-2 border-zeus-gold"
+          className="group relative w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-2xl shadow-amber-500/40 hover:shadow-amber-500/60 hover:scale-110 transition-all duration-300 border-2 border-amber-400/30 overflow-hidden"
           aria-label="Open chat"
         >
-          <MessageCircle
-            size={30}
-            className="text-white group-hover:text-zeus-gold transition-colors"
-          />
+          {/* Animated gradient background */}
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-400/20 to-amber-600/20 animate-pulse"></div>
+
+          {/* Icon with glow effect */}
+          <div className="relative">
+            <MessageCircle
+              size={32}
+              className="text-white drop-shadow-lg group-hover:scale-110 transition-transform duration-300"
+            />
+          </div>
+
+          {/* Notification badge (optional - can be conditionally rendered) */}
+          <div className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900 shadow-lg"></div>
         </button>
       )}
     </div>

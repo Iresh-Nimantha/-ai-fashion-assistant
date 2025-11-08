@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 // Set these in .env.local
 const VLM_BASE_URL =
   process.env.VLM_BASE_URL || "https://router.huggingface.co/v1";
-const VLM_API_KEY = "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"; // hf_... token with Inference Providers permission
+const VLM_API_KEY = process.env.NEXT_PUBLIC_HF_TOKEN; // hf_... token with Inference Providers permission
 
 export async function POST(req: NextRequest) {
   try {

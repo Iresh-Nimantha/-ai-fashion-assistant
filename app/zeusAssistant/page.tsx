@@ -8,6 +8,7 @@ import React, {
   ChangeEvent,
   DragEvent,
 } from "react";
+import { useRouter } from "next/navigation";
 import {
   Upload,
   X,
@@ -30,16 +31,16 @@ import {
   ImageIcon,
   Sun,
   Moon,
+  Bot,
+  Home,
+  ArrowLeft,
 } from "lucide-react";
+import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "framer-motion";
 import ChatBubble from "../components/ChatBubble";
 import Imagegen from "../components/Imagegen";
 import FooterMenu from "../sections/FooterMenu";
-
-interface AIFashionAssistantProps {
-  onResult?: (text: string) => void;
-}
 
 interface HistoryItem {
   id: number;
@@ -94,9 +95,13 @@ type ChatMessage =
   | { role: "user"; content: Part[] }
   | { role: "assistant"; content: Part[] };
 
-const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
-  onResult,
-}) => {
+// Main page component - no props needed for Next.js pages
+export default function ZeusAssistantPage() {
+  const router = useRouter();
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileBottomTab, setMobileBottomTab] = useState<
+    "home" | "imagegen" | "chat" | null
+  >(null);
   const [image, setImage] = useState<File | null>(null);
   const [responseText, setResponseText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -118,18 +123,28 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
   const [viewMode, setViewMode] = useState<"split" | "input" | "output">(
     "split"
   );
+
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const responseRef = useRef<HTMLDivElement>(null);
 
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const closeMobilePanel = () => {
+    setMobileBottomTab(null);
+    if (isMobile) setViewMode("split");
+  };
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const model = useMemo(
     () => ({ name: "Qwen2.5-VL-7B-Instruct", baseUrl: "/api/vlm" }),
     []
   );
 
-  // Example: after analysis finishes
   useEffect(() => {
     let cancelled = false;
     async function runSample() {
@@ -155,18 +170,15 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
         const sample = await callVLM([system, user], 300, 0.4);
         if (!cancelled) {
           setResponseText(sample || "Style analysis ready.");
-          onResult?.(sample || "Style analysis ready.");
         }
       } catch (e) {
         console.error(e);
       }
     }
-    // Comment out if you only want suggestions after real image analysis
-    // runSample();
     return () => {
       cancelled = true;
     };
-  }, [onResult]);
+  }, []);
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -279,7 +291,7 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
   async function uploadImage(file: File): Promise<string> {
     const fd = new FormData();
     fd.append("file", file);
-    const r = await fetch("/api/upload", { method: "POST", body: fd }); // ✅ Correct endpoint
+    const r = await fetch("/api/upload", { method: "POST", body: fd });
     if (!r.ok) throw new Error(await r.text());
     const { url, error } = await r.json();
     if (error) throw new Error(error);
@@ -345,7 +357,6 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
 
       const text = await callVLM(messages, maxTokens, temperature);
       setResponseText(text);
-      onResult?.(text);
       setShowResults(true);
 
       const extractedTags = text
@@ -414,7 +425,12 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
       setLoading(false);
     }
   };
-
+  const handleArrowClick = () => {
+    if (typeof window !== "undefined" && window.innerWidth >= 1024) {
+      // Only navigate on desktop (lg breakpoint ~1024px)
+      router.push("/");
+    }
+  };
   return (
     <div className={`min-h-screen ${themeClasses} font-zeus flex flex-col`}>
       {/* Header */}
@@ -425,6 +441,14 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
       >
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center space-x-3">
+            <div>
+              <ArrowLeft
+                onClick={handleArrowClick}
+                className={`w-6 h-6 cursor-pointer transition-transform duration-200 hover:scale-110 -ml-8 ${
+                  darkMode ? "text-white" : "text-zeus-navy"
+                }`}
+              />
+            </div>
             <div className="relative h-12 w-12 flex-shrink-0">
               <img
                 src="/logo.jpg"
@@ -434,7 +458,7 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
             </div>
             <div>
               <h1 className="text-xl zeus-heading">
-                <span className="text-blac">Zeus</span>
+                <span className="text-black">Zeus</span>
                 <span className={darkMode ? "text-white" : "text-zeus-navy"}>
                   {" "}
                   Fashion Studio
@@ -457,54 +481,7 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
             </div>
           </div>
           <div className="ml-6 flex items-center">
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className={`
-                w-16 h-9 flex items-center rounded-full px-1 transition-colors duration-300 relative
-                focus:outline-none focus:ring-2 focus:ring-zeus-gold
-                ${
-                  darkMode
-                    ? "bg-gradient-to-r from-zeus-gold to-yellow-400"
-                    : "bg-gradient-to-r from-zeus-navy to-blue-900"
-                }
-                shadow-md active:scale-95
-              `}
-              aria-label="Toggle light/dark mode"
-              type="button"
-            >
-              <span className="absolute left-2 top-1/2 -translate-y-1/2">
-                <Sun
-                  className={`w-4 h-4 transition-colors duration-300 ${
-                    darkMode
-                      ? "text-yellow-200 opacity-60"
-                      : "text-zeus-gold opacity-100"
-                  }`}
-                />
-              </span>
-              <span className="absolute right-2 top-1/2 -translate-y-1/2">
-                <Moon
-                  className={`w-4 h-4 transition-colors duration-300 ${
-                    darkMode
-                      ? "text-zeus-navy opacity-100"
-                      : "text-blue-200 opacity-60"
-                  }`}
-                />
-              </span>
-              <span
-                className={`
-                  w-7 h-7 rounded-full bg-white shadow-lg flex items-center justify-center
-                  transform transition-transform duration-300 z-10
-                  ${darkMode ? "translate-x-7" : "translate-x-0"}
-                  border-2 border-zeus-gold
-                `}
-              >
-                {darkMode ? (
-                  <Moon className="w-4 h-4 text-zeus-navy transition-transform duration-300" />
-                ) : (
-                  <Sun className="w-4 h-4 text-zeus-gold transition-transform duration-300" />
-                )}
-              </span>
-            </button>
+            {/* Dark Mode Toggle Button */}
           </div>
         </div>
       </header>
@@ -556,7 +533,7 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
         {/* Left Panel (Input) */}
         {(viewMode === "split" || viewMode === "input" || !showResults) && (
           <div
-            className={`flex-1 p-4 ${
+            className={`flex-1 p-4 pb-20 ${
               viewMode === "split" ? "md:w-1/2" : "w-full"
             } transition-all duration-300`}
             style={{
@@ -809,8 +786,7 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
                 </button>
               </motion.div>
 
-              {/* Optional: your Imagegen component below results */}
-              {showResults && responseText && (
+              {showResults && responseText && !isMobile && (
                 <div className="mt-6">
                   <Imagegen responseText={responseText} darkMode={darkMode} />
                 </div>
@@ -952,7 +928,7 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
                       <span className="text-zeus-gold font-bold tracking-wide mb-1">
                         Analyzing your outfit...
                       </span>
-                      <span className="text-black text-sm">
+                      <span className="text-black text-sm ">
                         Using {ANALYSIS_MODES[selectedMode].name}
                       </span>
                     </div>
@@ -1018,7 +994,7 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
                 <button
                   onClick={handleSubmit}
                   disabled={loading}
-                  className="px-3 py-1.5 bg-zeus-navy hover:bg-zeus-navy/70 text-sm rounded-lg flex items-center text-zeus-gold transition-colors"
+                  className="mb-20 px-3 py-1.5 bg-zeus-navy hover:bg-zeus-navy/70 text-sm rounded-lg flex items-center text-zeus-gold transition-colors"
                 >
                   <RefreshCw size={14} className="mr-1.5" />
                   Regenerate
@@ -1029,18 +1005,143 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
         )}
       </div>
 
-      {/* Footer */}
-      <footer
-        className={`py-3 text-center text-xs ${
-          darkMode ? "text-zeus-silver" : "text-gray-500"
-        }`}
-      >
-        <p>Powered by {new Date().getFullYear()} ©️ EmA AI Solutions</p>
-      </footer>
+      {/* Mobile bottom nav */}
+      {isMobile && (
+        <>
+          <AnimatePresence>
+            {mobileBottomTab && mobileBottomTab !== "home" && (
+              <motion.div
+                initial={{ y: "100%" }}
+                animate={{ y: 0 }}
+                exit={{ y: "100%" }}
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                className="fixed bottom-16 left-2 right-2 z-40 bg-zeus-navy backdrop-blur-md rounded-2xl pt-2 shadow-2xl flex flex-col border-2 border-zeus-gold"
+                style={{ maxHeight: "calc(100vh - 80px)" }}
+              >
+                {/* Header */}
+                <div className="flex justify-between items-center px-2 ">
+                  <div className="flex items-center gap-2">
+                    {mobileBottomTab === "imagegen" ? null : (
+                      <Image
+                        src="/logo.jpg"
+                        alt="AI Logo"
+                        width={32}
+                        height={32}
+                      />
+                    )}
+                    <span className="font-semibold text-white text-lg">
+                      {mobileBottomTab === "imagegen"
+                        ? "Image Tools"
+                        : "Zeus Fashion Assistant"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setMobileBottomTab(null)}
+                    className="p-2 rounded-full hover:bg-gray-700 transition"
+                    aria-label="Close tab"
+                  >
+                    <X size={20} className="text-white" />
+                  </button>
+                </div>
 
-      {/* Provide model info to ChatBubble (kept for layout) */}
-      <ChatBubble responseText={responseText} />
-      {/* Mobile bottom tab bar */}
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto px-2">
+                  {mobileBottomTab === "imagegen" ? (
+                    <Imagegen responseText={responseText} darkMode={true} />
+                  ) : (
+                    <div className="flex flex-col h-[70vh]">
+                      <ChatBubble
+                        responseText={responseText}
+                        className="flex-1 h-full overflow-y-auto"
+                      />
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Bottom nav buttons */}
+          <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-around items-center bg-gray-950/95 backdrop-blur-md py-3 px-2 border-t border-gray-800 shadow-[0_-2px_10px_rgba(0,0,0,0.4)] rounded-t-3xl">
+            {/* Home Button */}
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() => router.push("/")}
+              className={`flex flex-col items-center justify-center flex-1 transition-all duration-200 ${
+                mobileBottomTab === "home"
+                  ? "text-yellow-400"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <div
+                className={`p-2 rounded-full ${
+                  mobileBottomTab === "home"
+                    ? "bg-yellow-400/20 shadow-lg"
+                    : "hover:bg-gray-800/60"
+                } transition-all`}
+              >
+                <Home size={22} />
+              </div>
+              <span className="text-xs font-medium mt-1">Home</span>
+            </motion.button>
+
+            {/* Image Tools Button */}
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() =>
+                setMobileBottomTab((prev) =>
+                  prev === "imagegen" ? null : "imagegen"
+                )
+              }
+              className={`flex flex-col items-center justify-center flex-1 transition-all duration-200 ${
+                mobileBottomTab === "imagegen"
+                  ? "text-yellow-400"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <div
+                className={`p-2 rounded-full ${
+                  mobileBottomTab === "imagegen"
+                    ? "bg-yellow-400/20 shadow-lg"
+                    : "hover:bg-gray-800/60"
+                } transition-all`}
+              >
+                <ImageIcon size={22} />
+              </div>
+              <span className="text-xs font-medium mt-1">Image</span>
+            </motion.button>
+
+            {/* Chat Button */}
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() =>
+                setMobileBottomTab((prev) => (prev === "chat" ? null : "chat"))
+              }
+              className={`flex flex-col items-center justify-center flex-1 transition-all duration-200 ${
+                mobileBottomTab === "chat"
+                  ? "text-yellow-400"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <div
+                className={`p-2 rounded-full ${
+                  mobileBottomTab === "chat"
+                    ? "bg-yellow-400/20 shadow-lg"
+                    : "hover:bg-gray-800/60"
+                } transition-all`}
+              >
+                <Bot size={22} />
+              </div>
+              <span className="text-xs font-medium mt-1">Chat</span>
+            </motion.button>
+          </div>
+        </>
+      )}
+
+      {/* Desktop ChatBubble */}
+      {!isMobile && <ChatBubble responseText={responseText} />}
+
+      {/* Footer */}
       {!isMobile && (
         <footer
           className={`py-3 text-center text-xs ${
@@ -1052,6 +1153,4 @@ const AIFashionAssistant: React.FC<AIFashionAssistantProps> = ({
       )}
     </div>
   );
-};
-
-export default AIFashionAssistant;
+}

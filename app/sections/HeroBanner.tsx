@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -20,7 +20,7 @@ const HeroBanner = () => {
   }, []);
 
   // Handle mouse movement for spotlight effect
-  const handleMouseMove = (e) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const container = document.getElementById("hero-container");
     if (!container) return;
 

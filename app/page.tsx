@@ -9,6 +9,9 @@ import ContactSection from "./sections/ContactSection";
 import SocialMediaSection from "./sections/SocialMediaSection";
 import Footer from "./sections/Footer";
 import Chatbot from "./components/ChatBubble";
+type PageProps = {
+  onResult?: (result: any) => void;
+};
 
 const Page = () => {
   // If some child sets analysis later, lift state up here and pass it down
